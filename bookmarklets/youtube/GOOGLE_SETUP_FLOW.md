@@ -25,8 +25,12 @@ Google Sheets에 바인딩하지 않습니다.
 
 ```text
 유튜브다운로드 실행
+→ 숨은 bridge init 시도
+→ Google 미승인 상태면 승인 페이지 이동 확인
 → Google 승인
-→ YouTube로 돌아가 유튜브다운로드 다시 실행
+→ YouTube로 돌아감
+→ 유튜브다운로드 다시 실행
+→ 화면용 Apps Script UI 표시
 → get-state
 → 연결 파일 없음
 → create-storage
@@ -39,12 +43,17 @@ Google Sheets에 바인딩하지 않습니다.
 
 사용자는 최초 설정에서 Sheets를 직접 만들거나 주소를 입력하지 않습니다.
 
-미승인 계정에서는 POST 브리지가 응답하지 않을 수 있으므로 최종 고정 로더가 공용 `/exec` 승인 페이지로 이동할지 한 번 확인합니다. 승인 페이지는 승인 완료 안내만 표시하며 데이터 통신은 계속 숨은 iframe POST 브리지를 사용합니다.
+승인 페이지의 `doGet()`은 승인 완료 안내만 표시합니다. 실제 UI와 데이터 요청은 YouTube에서 실행한 POST 브리지를 사용합니다.
 
 ## 4. 이후 실행
 
 ```text
-get-state
+bridge init
+→ mode=ui POST
+→ ui.html 표시
+→ create-storage
+→ 기존 연결 있으면 재사용
+→ get-state
 → defaultFileId
 → SpreadsheetApp.openById(...)
 → 파일 → 시트 → 카테고리 복원
@@ -83,19 +92,21 @@ get-state
 - 1,800개부터 한도 경고
 - 기록 수와 다음 저장 행은 `영상 ID` 열 기준
 
-## 7. ui.html의 위치
+## 7. ui.html의 위치와 표시
 
 `ui.html`은 Google Sheets 안에 들어가는 데이터가 아니라 Apps Script 프로그램 파일입니다.
 
 ```text
-Transport.gs / get-ui
-→ Apps Script ui.html 내용 반환
-→ bookmarklet.js
-→ Blob URL 생성
-→ iframe.src에 Blob URL 지정
-→ YouTube 페이지에 UI 표시
+bookmarklet.js
+→ 화면용 iframe 생성
+→ /exec에 mode=ui POST
+→ Transport.gs
+→ HtmlService로 ui.html 표시
+→ host bridge 연결
 ```
 
-YouTube의 Trusted Types 정책 때문에 `iframe.srcdoc`은 사용하지 않습니다.
+YouTube 문서 안에서 `srcdoc`이나 Blob URL로 UI HTML을 생성하지 않습니다.
+
+Apps Script UI의 실제 실행 origin은 `*-script.googleusercontent.com` 계열일 수 있으므로 로더는 해당 Apps Script origin과 실행 token을 함께 검증합니다.
 
 따라서 `유튜브다운로드sheet_v1`에는 코드나 UI 파일을 넣지 않습니다.
