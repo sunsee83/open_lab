@@ -1,4 +1,4 @@
-/* 유튜브다운로드 - Apps Script bridge */
+/* 유튜브다운로드 - GitHub 원격 Apps Script 브리지 런타임 */
 
 const BRIDGE_ORIGINS_ = Object.freeze([
   'https://www.youtube.com',
@@ -10,10 +10,7 @@ const BRIDGE_ORIGINS_ = Object.freeze([
 function doGet(e) {
   const p = e && e.parameter ? e.parameter : {};
   if (String(p.mode || '') !== 'bridge') {
-    return HtmlService.createHtmlOutput(infoPageHtml_(
-      'Google 승인 완료',
-      '이 페이지를 닫고 YouTube로 돌아가 유튜브다운로드를 다시 실행해 주세요.'
-    )).setTitle('유튜브다운로드 - Google 승인');
+    return bridgeOutput_(infoPageHtml_('유튜브다운로드', 'YouTube에서 유튜브다운로드를 실행해 주세요.'));
   }
 
   const origin = allowedOrigin_(p.origin);
@@ -34,7 +31,7 @@ function bridgeOutput_(html) {
 }
 
 function bridgeTopHtml_(origin, token) {
-  const ui = HtmlService.createHtmlOutputFromFile('ui').getContent();
+  const ui = ytRemoteText_('ui.html');
   return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<style>body{margin:0;background:#111;color:#eee;font:15px/1.5 system-ui;padding:24px}.box{max-width:520px;margin:auto;padding:18px;border:1px solid #333;border-radius:14px;background:#181818}.sub{margin-top:8px;color:#aaa;font-size:13px}</style>' +
     '</head><body><div class="box"><b>유튜브다운로드 · Google 연결</b><div id="s" class="sub">YouTube와 연결 중…</div></div>' +
