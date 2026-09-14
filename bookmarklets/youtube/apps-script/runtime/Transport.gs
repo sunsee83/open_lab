@@ -9,18 +9,14 @@ const BRIDGE_ORIGINS_ = Object.freeze([
 
 function doGet(e) {
   const p = e && e.parameter ? e.parameter : {};
-  if (String(p.mode || '') !== 'bridge') {
-    return bridgeOutput_(infoPageHtml_('유튜브다운로드', 'YouTube에서 유튜브다운로드를 실행해 주세요.'));
-  }
-
   const origin = allowedOrigin_(p.origin);
   const token = sessionToken_(p.token);
-  if (!origin || !token) return bridgeOutput_(infoPageHtml_('유튜브다운로드', '연결 정보가 올바르지 않습니다.'));
+  if (!origin || !token) return bridgeOutput_(infoPageHtml_('연결 정보가 올바르지 않습니다.'));
 
   try {
     return bridgeOutput_(bridgeTopHtml_(origin, token));
   } catch (err) {
-    return bridgeOutput_(infoPageHtml_('유튜브다운로드', '유튜브다운로드 연결 페이지를 만들지 못했습니다.'));
+    return bridgeOutput_(infoPageHtml_('유튜브다운로드 연결 페이지를 만들지 못했습니다.'));
   }
 }
 
@@ -101,10 +97,10 @@ function sessionToken_(value) {
   return /^[A-Za-z0-9_-]{16,128}$/.test(token) ? token : '';
 }
 
-function infoPageHtml_(heading, message) {
+function infoPageHtml_(message) {
   return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<style>body{margin:0;background:#111;color:#eee;font:15px/1.5 system-ui;padding:24px}.box{max-width:520px;margin:auto;padding:18px;border:1px solid #333;border-radius:14px;background:#181818}h1{font-size:18px;margin:0 0 8px}</style>' +
-    '</head><body><div class="box"><h1>' + htmlEscape_(heading) + '</h1><div>' + htmlEscape_(message) + '</div></div></body></html>';
+    '</head><body><div class="box"><h1>유튜브다운로드</h1><div>' + htmlEscape_(message) + '</div></div></body></html>';
 }
 
 function htmlEscape_(value) {
