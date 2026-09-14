@@ -11,7 +11,7 @@ const YTDL_REMOTE_ = Object.freeze({
 
 function doGet(e) {
   const mode = String(e && e.parameter && e.parameter.mode || '');
-  if (!mode || mode === 'info') return ytInfoOutput_();
+  if (mode !== 'bridge') return ytInfoOutput_();
   try {
     return ytRuntime_().doGet(e);
   } catch (err) {
