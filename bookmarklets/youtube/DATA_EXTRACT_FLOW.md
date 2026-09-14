@@ -2,7 +2,7 @@
 
 이 문서는 `ui.html`이 `데이터` 선택 시 만드는 현재 데이터 결과 형식과 추출 원칙을 정의합니다.
 
-실제 YouTube 전용 endpoint/continuation/caption 해석 코드는 `ui.html`의 실행 코어에 둡니다. 모바일 `bookmarklet.js`에는 추출 로직을 넣지 않습니다.
+YouTube 전용 endpoint/continuation/caption 해석 코드는 `ui.html`에 둡니다. Apps Script UI는 YouTube와 cross-origin이므로 실제 YouTube 네트워크 요청은 고정 로더의 허용된 `fetch` 호스트 프록시가 상위 YouTube 페이지에서 수행합니다.
 
 ## 1. 선택 가능한 필드
 
@@ -39,14 +39,28 @@
 4. 대본과 자막 원본을 함께 선택하면 같은 caption 응답을 재사용합니다.
 5. 댓글은 선택된 경우에만 현재 YouTube `youtubei/v1/next`의 comment continuation을 사용합니다.
 6. 댓글 정렬은 `top` 또는 `newest`, 수량은 최대 300개입니다.
-7. 좋아요는 현재 영상 페이지의 버튼/초기 데이터에서 확인합니다.
+7. 좋아요는 현재 영상 페이지에서 호스트가 전달한 표시 문자열을 우선 확인합니다.
 8. 특정 필드가 실패해도 확보된 다른 필드는 유지합니다.
 9. 결과는 JSON 직렬화 가능한 값만 사용합니다.
 10. 인증정보, 쿠키, 세션값, 미디어 스트림 URL은 데이터 결과에 포함하지 않습니다.
+11. host fetch는 허용된 YouTube HTTPS 도메인만 요청합니다.
 
-## 3. 대본
+## 3. player
 
-선택할 자막 트랙 우선순위는 현재 사용 가능한 트랙 중 한국어와 수동 자막을 우선하는 방식입니다. 사용 가능한 트랙이 없으면 해당 필드만 실패 처리합니다.
+`ui.html`은 Android client 규격으로 player 요청을 구성합니다.
+
+```text
+ui.html player()
+→ host fetch
+→ https://www.youtube.com/youtubei/v1/player
+→ JSON 응답을 ui.html로 반환
+```
+
+영상/음성 direct URL은 데이터 출력에 넣지 않고 현재 실행의 미디어 후보 Map에만 둡니다.
+
+## 4. 대본
+
+선택할 자막 트랙은 현재 사용 가능한 트랙 중 한국어와 수동 자막을 우선합니다. 사용 가능한 트랙이 없으면 해당 필드만 실패 처리합니다.
 
 ```js
 {
@@ -59,9 +73,9 @@
 }
 ```
 
-`json3` 자막 응답을 우선 사용하고, 실패하면 기본 timedtext 응답을 다시 해석합니다.
+`json3` 자막 응답을 우선 사용하고, 실패하면 기본 timedtext 응답을 해석합니다. 자막 URL 요청도 host fetch를 사용합니다.
 
-## 4. 자막 원본
+## 5. 자막 원본
 
 `rawCaptions`는 선택된 자막 트랙의 언어/종류 정보와 원본 이벤트 또는 구간 데이터를 JSON 직렬화 가능한 형태로 보존합니다.
 
@@ -79,7 +93,7 @@
 
 자막 `baseUrl` 자체는 결과에 저장하지 않습니다.
 
-## 5. 댓글
+## 6. 댓글
 
 ```js
 [
@@ -96,11 +110,11 @@
 처리 순서:
 
 ```text
-현재 ytInitialData에서 댓글 continuation 검색
-→ 없으면 youtubei/v1/next(videoId)로 진입점 조회
+호스트가 전달한 현재 영상 컨텍스트 사용
+→ 필요 시 youtubei/v1/next(videoId)로 진입점 조회
 → 댓글 continuation 호출
 → top/newest 정렬 continuation 선택
-→ 후속 continuation을 최대 요청 수까지 반복
+→ 후속 continuation 반복
 → 중복 댓글 제거
 ```
 
@@ -109,13 +123,13 @@
 - 요청 수보다 적게 확보되면 확보된 결과만 사용
 - 댓글 비활성화/구조 변경/요청 실패 시 `errors.comments`만 기록
 
-## 6. 좋아요
+## 7. 좋아요
 
-현재 영상의 상단 좋아요 버튼의 `aria-label`, `title`, 표시문구를 우선 확인합니다. 필요하면 `ytInitialData`의 좋아요 관련 표시 문자열을 보조로 확인합니다.
+고정 로더는 현재 YouTube 페이지에서 좋아요 버튼의 `aria-label`, `title`, 표시문구를 읽어 UI 초기 컨텍스트에 전달합니다.
 
 `천`, `만`, `억`, `K`, `M`, `B` 축약 표시는 가능한 경우 정수 카운트로 변환합니다.
 
-## 7. 원본 메타데이터
+## 8. 원본 메타데이터
 
 `rawMetadata`는 `videoDetails`와 `playerMicroformatRenderer`의 진단/보존용 스냅샷입니다.
 
@@ -129,7 +143,7 @@ caption baseUrl
 OAuth access/refresh token
 ```
 
-## 8. 코어 결과
+## 9. 코어 결과
 
 ```js
 {
