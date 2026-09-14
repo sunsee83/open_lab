@@ -8,8 +8,10 @@
 YouTube 페이지
 ├─ 숨은 bridge iframe
 │  └─ init / request POST
-└─ 화면 UI iframe
-   └─ mode=ui POST → Apps Script ui.html
+├─ 화면 UI iframe
+│  └─ mode=ui POST → Apps Script ui.html
+└─ 상위 페이지 저장/닫기 바
+   └─ 실제 사용자 클릭과 File System Access API 담당
 ```
 
 UI iframe은 Apps Script의 cross-origin sandbox에서 실행됩니다.
@@ -23,7 +25,7 @@ init
 → bridgeNonce 확보
 → mode=request POST
 → YT_GAS_RESPONSE
-→ token + requestId 확인
+→ iframe source + Google origin + token + requestId 확인
 ```
 
 bridgeNonce가 만료되면 한 번 재초기화합니다.
@@ -33,7 +35,7 @@ bridgeNonce가 만료되면 한 번 재초기화합니다.
 ```text
 bookmarklet.js
 → ping
-→ 화면 iframe 생성
+→ 화면 iframe + 상위 저장/닫기 바 생성
 → mode=ui POST
 → Transport.gs가 ui.html + 호스트 shim 응답
 → UI: YTDL_UI_READY
@@ -50,7 +52,7 @@ bookmarklet.js
   type:'YTDL_HOST_REQUEST',
   token:'현재 실행 token',
   id:'요청 ID',
-  action:'gas|fetch|pick-file|pick-dir|dir-file|write-text|write-media|open|close',
+  action:'gas|fetch|dir-file|write-text|write-media|open|close',
   payload:{}
 }
 ```
@@ -69,7 +71,66 @@ bookmarklet.js
 
 실패 시 `ok:false`와 오류 메시지를 반환합니다.
 
-## 5. 호스트 action 경계
+## 5. 저장 계획
+
+UI는 선택 상태가 바뀔 때 다음 메시지를 상위 페이지로 보냅니다.
+
+```js
+{
+  type:'YTDL_SAVE_PLAN',
+  token:'현재 실행 token',
+  configured:true,
+  busy:false,
+  target:'local'|'drive',
+  types:['video','audio','data'],
+  items:[
+    {kind:'video',name:'파일명.mp4',picker:{}},
+    {kind:'audio',name:'파일명.m4a',picker:{}},
+    {kind:'data',name:'파일명.txt',picker:{}}
+  ]
+}
+```
+
+`items`에는 파일명과 picker 옵션만 포함하며 실제 미디어 URL이나 FileSystemHandle은 포함하지 않습니다.
+
+## 6. 상위 저장 버튼
+
+화면 하단의 `저장 / 닫기`는 YouTube 상위 문서에 있는 실제 버튼입니다. iframe 내부의 원래 footer는 host mode에서 숨깁니다.
+
+### Drive
+
+```text
+사용자 [저장]
+→ YTDL_HOST_SAVE
+→ ui.html 기존 저장 핸들러 실행
+```
+
+### 로컬 단일 항목
+
+```text
+사용자 [저장]
+→ 같은 click handler 안에서 showSaveFilePicker() 즉시 호출
+→ 실제 FileSystemFileHandle 확보
+→ 호스트 Map에 저장
+→ YTDL_HOST_SAVE {local:{fileId}}
+→ ui.html 기존 저장 핸들러 실행
+```
+
+### 로컬 복수 항목
+
+```text
+사용자 [저장]
+→ 같은 click handler 안에서 showDirectoryPicker() 즉시 호출
+→ 실제 FileSystemDirectoryHandle 확보
+→ 호스트 Map에 저장
+→ YTDL_HOST_SAVE {local:{dirId}}
+→ ui.html 기존 저장 핸들러 실행
+→ dir-file로 항목별 FileHandle 생성
+```
+
+파일 선택창을 `postMessage` 이후에 새로 호출하지 않습니다. 이 규칙으로 cross-origin iframe 경계에서 user activation이 소실되는 문제를 피합니다.
+
+## 7. 호스트 action 경계
 
 ### gas
 
@@ -95,16 +156,14 @@ HTTPS `googlevideo.com` 계열 미디어 URL만 허용합니다. 실제 URL은 �
 ### 파일 action
 
 ```text
-pick-file
-pick-dir
 dir-file
 write-text
 write-media
 ```
 
-실제 `FileSystemFileHandle`과 `FileSystemDirectoryHandle`은 YouTube 상위 페이지 메모리에만 둡니다. UI에는 임시 handle ID만 반환합니다.
+실제 `FileSystemFileHandle`과 `FileSystemDirectoryHandle`은 YouTube 상위 페이지 메모리에만 둡니다. UI에는 임시 handle ID만 전달합니다.
 
-## 6. ui.html 내부 호환 객체
+## 8. ui.html 내부 호환 객체
 
 Transport가 넣는 shim은 기존 UI 코어가 계속 같은 인터페이스를 사용하도록 가상 parent를 제공합니다.
 
@@ -119,9 +178,9 @@ parent.__YTDL_TOKEN
 parent.__YTDL_CLOSE()
 ```
 
-따라서 YouTube 추출·Sheets·UI 기능 코드는 `ui.html`에 유지하고 고정 로더에는 넣지 않습니다.
+또한 host가 미리 확보한 임시 handle ID를 `showSaveFilePicker()` / `showDirectoryPicker()` 호환 함수가 받아 기존 `saveLocal()` 코드를 그대로 실행합니다. 실제 브라우저 picker는 이 shim 안에서 호출하지 않습니다.
 
-## 7. 사용자 저장 입력
+## 9. 사용자 저장 입력
 
 ```js
 {
@@ -140,10 +199,12 @@ parent.__YTDL_CLOSE()
 
 중복 업데이트에서는 이번 실행에서 사용자가 직접 바꾼 관리정보만 `management`에 넣습니다. 사용자가 직접 비운 항목만 `clearManagement`에 넣고, 건드리지 않은 항목은 전달하지 않아 기존값을 보존합니다.
 
-## 8. Sheets 저장
+## 10. Sheets 저장
 
 ```text
 데이터 + Drive
+→ 상위 [저장]
+→ YTDL_HOST_SAVE
 → ui.html collect()
 → host gas
 → 숨은 POST bridge
@@ -154,22 +215,7 @@ parent.__YTDL_CLOSE()
 
 중복이면 UI 내부 `dup` 상태를 갱신하고 업데이트/새 기록 선택 영역을 표시합니다.
 
-## 9. 로컬 저장
-
-사용자가 UI에서 저장을 누르면 UI의 파일 선택 프록시가 상위 YouTube 페이지에서 File System Access API를 실행합니다.
-
-```text
-한 종류
-→ pick-file
-
-복수 종류
-→ pick-dir
-→ dir-file
-```
-
-그 뒤 텍스트는 `write-text`, 영상/음성은 `write-media`로 기록합니다.
-
-## 10. Drive 미디어
+## 11. Drive 미디어
 
 Google Save to Drive 버튼만 렌더링된 시점은 저장 완료가 아닙니다.
 
@@ -182,19 +228,21 @@ Drive 버튼 준비됨
 저장 실패
 ```
 
-## 11. 보안 검증
+## 12. 보안 검증
 
 - YouTube origin은 Code.gs 허용 목록과 일치해야 함
-- Apps Script 클라이언트 origin은 HTTPS `script.google.com` 또는 `*-script.googleusercontent.com` 계열만 허용
-- 모든 메시지는 실행 token 확인
-- 최초 UI 준비 메시지 이후 sender window와 origin을 현재 UI 채널로 고정
+- 일반 POST 응답은 숨은 bridge iframe의 `contentWindow`와 Google 실행 origin을 함께 확인
+- Apps Script UI origin은 HTTPS `script.google.com`, `script.googleusercontent.com`, `*-script.googleusercontent.com` 계열만 허용
+- `YTDL_UI_READY`는 화면 iframe의 `contentWindow`에서 온 경우만 채널로 고정
+- 이후 UI 메시지는 고정된 sender window + origin + 실행 token을 모두 확인
 - 임의 외부 fetch 금지
 - 임의 외부 미디어 URL 기록 금지
 
-## 12. 종료
+## 13. 종료
 
 ```text
 닫기
+→ 상위 저장/닫기 바 제거
 → 화면 UI iframe 제거
 → 숨은 bridge iframe 제거
 → message listener 제거
