@@ -11,196 +11,132 @@
 └─ ui.html
 ```
 
-`ui.html`은 GitHub의 `bookmarklets/youtube/ui.html`과 같은 원본을 Apps Script의 HTML 파일 `ui`에 복사합니다.
-
-## 2. 공용 엔드포인트
+공용 웹앱 주소:
 
 ```text
 https://script.google.com/macros/s/AKfycbxj-jUt6mYeQMKqIR5d0hloyP7NqbBlZUwjbmctPovwxmApqWuius0WGpdsn21aMuOx/exec
 ```
 
-이 주소는 공용 Apps Script 웹앱 주소이며 개인 Sheets 주소가 아닙니다.
+웹 앱은 `웹 앱에 액세스하는 사용자`로 실행하고 액세스 대상은 `Google 계정이 있는 모든 사용자`입니다.
 
-## 3. 브리지 구성
+## 2. 현재 연결 구조
 
-북마클릿은 두 iframe과 상위 페이지 action bar를 사용합니다.
-
-```text
-숨은 bridge iframe
-→ init / request POST
-→ Apps Script action 응답 수신
-
-화면 UI iframe
-→ mode=ui POST의 target
-→ Transport.gs가 ui.html을 HTML Service로 직접 표시
-
-상위 YouTube 문서 action bar
-→ 실제 저장 / 닫기 클릭
-→ File System Access API의 user activation 보존
-```
-
-UI는 `srcdoc`이나 Blob URL로 생성하지 않습니다.
-
-## 4. 세션
+Google 인증이 필요한 Apps Script를 YouTube 안의 숨은 iframe에서 호출하지 않습니다. 모바일 브라우저의 서드파티 쿠키 제한 때문에 승인 후에도 숨은 iframe 인증이 반복 실패할 수 있기 때문입니다.
 
 ```text
-init
-→ origin + token + requestId 검증
-→ 사용자별 bridgeNonce 발급
-
-request
-→ origin + token + requestId + bridgeNonce 검증
-→ action 실행
-
-ui
-→ origin + token + requestId + bridgeNonce 검증
-→ ui.html 표시
+YouTube
+→ 북마클릿 실행
+→ 즉시 별도 Google 연결 탭 생성
+→ form POST mode=bridge
+→ Transport.gs
+→ 인증된 top-level Apps Script 연결 페이지
+→ ui.html 원본 + google.script.run 브리지 준비
+→ postMessage로 YouTube에 UI 원본 전달
+→ YouTube가 Blob URL UI iframe 생성
 ```
 
-- nonce 유효시간: 10분
-- nonce 저장: `PropertiesService.getUserProperties()`
-- OAuth access/refresh token을 북마클릿에 전달하지 않음
-- 허용 YouTube origin만 연결 가능
+`iframe.srcdoc`은 사용하지 않습니다. UI 문서는 YouTube 페이지가 만든 Blob URL을 사용합니다.
 
-## 5. Apps Script HTML 실행 origin
+## 3. 최초 Google 승인
 
-HTML Service의 실제 클라이언트 스크립트는 다음과 같은 동적 origin에서 실행될 수 있습니다.
+최초 미승인 계정은 연결 탭에서 Google 승인을 진행합니다.
 
 ```text
-https://n-...-script.googleusercontent.com
+유튜브다운로드 실행
+→ Google 연결 탭이 즉시 열림
+→ Google 승인
+→ 승인 완료 안내
+→ 승인 탭 닫기
+→ 기존 YouTube 탭에서 유튜브다운로드 다시 실행
 ```
 
-따라서 북마클릿은 `script.google.com`, `script.googleusercontent.com`, `*-script.googleusercontent.com` 계열의 HTTPS origin만 허용하고 실행 token을 함께 검증합니다.
+승인 여부를 확인하려고 15초 동안 숨은 iframe 응답을 기다리거나, 현재 YouTube 탭을 승인 페이지로 이동시키지 않습니다.
 
-일반 POST 응답은 숨은 bridge iframe의 `contentWindow`까지 확인합니다. UI는 최초 `YTDL_UI_READY`가 화면 iframe의 `contentWindow`에서 온 경우에만 승인하고, 이후 sender window와 origin을 현재 실행의 UI 채널로 고정합니다.
+## 4. 승인 이후 실행
 
-## 6. UI 호스트 프록시
-
-Apps Script UI는 YouTube 페이지와 cross-origin입니다. UI가 필요한 브라우저 기능은 `postMessage`로 YouTube 상위 페이지의 고정 로더에 요청합니다.
+이미 승인된 계정은 연결 탭이 `mode=bridge`를 바로 처리합니다.
 
 ```text
-YTDL_UI_READY
-→ YTDL_HOST_INIT
-→ YouTube URL/메타데이터/ytcfg 전달
-
-YTDL_HOST_REQUEST
-→ 허용된 호스트 기능 실행
-→ YTDL_HOST_RESPONSE
+Transport.gs
+→ bridgeTopHtml_()
+→ Apps Script HTML Service sandbox
+→ 실제 sandbox window가 YouTube opener에 YTDL_BRIDGE_READY 전송
+→ 북마클릿이 sender window + Google origin + 실행 token 고정
+→ UI 표시
 ```
 
-일반 호스트 action:
+Apps Script HTML Service는 내부 sandbox iframe을 사용하므로 연결 코드는 `window.top.opener`를 통해 원래 YouTube 창을 찾습니다. YouTube 쪽은 최초 READY를 보낸 실제 sender window를 이후 브리지 채널로 고정합니다.
+
+연결 탭은 UI가 실행되는 동안 Apps Script RPC를 처리하므로 닫지 않습니다. `유튜브다운로드`를 닫을 때 함께 종료를 시도합니다.
+
+## 5. Apps Script RPC
+
+UI가 Sheets 작업을 요청하면:
 
 ```text
-gas         Apps Script action 호출
-fetch       허용된 YouTube HTTPS 요청
-dir-file    이미 선택한 폴더 안 파일 핸들 생성
-write-text  텍스트 파일 기록
-write-media GoogleVideo 스트림 기록
-open        HTTPS 페이지 열기
-close       현재 유튜브다운로드 종료
+ui.html
+→ parent.__YTDL_CALL(action, payload)
+→ YTDL_BRIDGE_REQUEST
+→ Google 연결 탭
+→ google.script.run.bridgeTopDispatch(...)
+→ bridgeDispatch_()
+→ Code.gs dispatch()
+→ YTDL_BRIDGE_RESPONSE
+→ YouTube
+→ ui.html
 ```
 
-YouTube 쿠키나 OAuth token 자체를 UI에 전달하지 않습니다.
-
-## 7. 로컬 저장 activation 채널
-
-파일/폴더 선택은 일반 `YTDL_HOST_REQUEST`로 처리하지 않습니다. UI가 먼저 현재 저장 계획을 상위 페이지에 동기화합니다.
+지원 action:
 
 ```text
-YTDL_SAVE_PLAN
-→ target / types / 파일명 / picker 옵션 / busy 상태
+Transport 전용
+- create-storage
+- get-ui (호환용)
+
+Code.gs
+- ping
+- get-state
+- connect-file
+- unlink-file
+- list-sheets
+- create-sheet
+- list-categories
+- add-category
+- check-duplicate
+- save-record
 ```
 
-사용자가 상위 YouTube 문서의 실제 `[저장]` 버튼을 누르면 같은 click handler 안에서 즉시:
+브라우저에서 Google Sheets REST API를 직접 호출하지 않으며 OAuth access/refresh token을 북마클릿이나 GitHub에 저장하지 않습니다.
+
+## 6. UI origin과 CSP
+
+`ui.html` 원본은 Apps Script 연결 탭에서 YouTube로 전달되고, YouTube가 Blob URL을 생성해 iframe에 표시합니다.
+
+YouTube CSP를 따르기 위해 현재 페이지의 script nonce가 있으면 첫 `<style>`과 UI 시작 `<script>`에 동일 nonce를 적용합니다. `srcdoc`은 Trusted Types 문제 때문에 사용하지 않습니다.
+
+Blob UI는 YouTube와 같은 origin 문맥을 사용하므로 기존 `ui.html`의 `parent.document`, `parent.location`, `parent.fetch`, `parent.__YTDL_CALL` 인터페이스를 유지합니다.
+
+## 7. 로컬 저장
+
+파일 선택은 사용자 클릭의 transient activation을 보존해야 합니다. Blob UI는 picker 호출을 상위 YouTube window의 File System Access API로 동기 위임합니다.
 
 ```text
-단일 항목 → showSaveFilePicker()
-복수 항목 → showDirectoryPicker()
+사용자 [저장]
+→ parent.showSaveFilePicker() 또는 parent.showDirectoryPicker()
+→ 실제 FileSystemHandle 확보
+→ ui.html 기존 saveLocal()
 ```
 
-를 호출합니다. handle을 확보한 뒤에만 다음 메시지를 UI로 보냅니다.
+실제 파일 핸들, 미디어 URL, 인증정보는 실행 메모리에만 두고 영구 저장하지 않습니다.
 
-```text
-YTDL_HOST_SAVE {local:{fileId}}
-또는
-YTDL_HOST_SAVE {local:{dirId}}
-```
+## 8. 보안 검증
 
-Transport가 넣는 shim은 이 임시 handle ID를 기존 `ui.html`의 `showSaveFilePicker()` / `showDirectoryPicker()` 호출 결과처럼 제공하므로 `saveLocal()` 코어를 바꾸지 않습니다.
+- YouTube origin은 Code.gs 허용 목록과 일치해야 함
+- 연결 페이지는 실행 token을 검증함
+- Google 실행 origin은 `script.google.com`, `script.googleusercontent.com`, `*-script.googleusercontent.com` 계열만 허용
+- 최초 READY 이후 실제 sender window와 origin을 고정
+- Apps Script 작업은 승인된 top-level 연결 탭의 `google.script.run`으로만 실행
 
-이 구조는 cross-origin iframe의 클릭을 `postMessage`한 뒤 picker를 호출하면서 transient user activation이 사라지는 문제를 피하기 위한 고정 규칙입니다.
+## 9. 북마클릿 크기
 
-## 8. Apps Script action
-
-Transport 전용:
-
-```text
-create-storage
-```
-
-현재 고정 로더의 화면 표시는 `mode=ui`를 사용합니다. `get-ui` action은 이전 호출과의 호환을 위해 남아 있지만 최종 표시 경로에서는 사용하지 않습니다.
-
-Code.gs action:
-
-```text
-ping
-get-state
-connect-file
-unlink-file
-list-sheets
-create-sheet
-list-categories
-add-category
-check-duplicate
-save-record
-```
-
-## 9. POST 필드
-
-초기화:
-
-```text
-mode=init
-origin=<YouTube origin>
-token=<실행 token>
-requestId=<요청 ID>
-```
-
-일반 action:
-
-```text
-mode=request
-origin=<YouTube origin>
-token=<실행 token>
-requestId=<요청 ID>
-bridgeNonce=<init에서 받은 nonce>
-request=<JSON 문자열>
-```
-
-UI 표시:
-
-```text
-mode=ui
-origin=<YouTube origin>
-token=<실행 token>
-requestId=<요청 ID>
-bridgeNonce=<init에서 받은 nonce>
-```
-
-일반 POST 응답은 `YT_GAS_RESPONSE`의 source window, Google 실행 origin, token, requestId가 모두 일치할 때만 사용합니다.
-
-## 10. Google 승인
-
-웹 앱은 `웹 앱에 액세스하는 사용자`로 실행합니다. 처음 사용하는 Google 계정은 `유튜브다운로드앱_v1`에 대한 승인을 한 번 진행합니다.
-
-```text
-최초 미승인 계정
-→ 숨은 init POST 응답 없음
-→ 고정 로더가 승인 페이지 이동 여부 확인
-→ 공용 /exec를 현재 탭에서 열어 Google 승인
-→ doGet() 승인 완료 안내
-→ YouTube로 돌아감
-→ 유튜브다운로드 다시 실행
-```
-
-승인 이후 데이터 통신은 숨은 iframe POST 브리지를 사용합니다. `window.opener`와 브라우저 직접 Sheets REST API는 사용하지 않습니다.
+Android Whale 배포용 `bookmarklet.js`는 5,000자 이내를 하드 제한으로 관리합니다. 기능 코어는 `ui.html`, `Transport.gs`, `Code.gs`에 유지하고 북마클릿은 연결/표시 역할만 담당합니다.
