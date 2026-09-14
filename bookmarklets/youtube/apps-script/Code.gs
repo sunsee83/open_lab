@@ -483,7 +483,7 @@ function applyPresentation_(sheet, rowNumber, record, videoId, isNew) {
 function setLink_(range, text, url) {
   const label = safe_(text);
   if (!label) { range.setValue(''); return; }
-  try { range.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(String(label)).setLinkUrl(url).build());
+  try { range.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(String(label)).setLinkUrl(url).build()); }
   catch (e) { range.setValue(label); }
 }
 
