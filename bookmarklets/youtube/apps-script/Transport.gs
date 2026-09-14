@@ -89,12 +89,16 @@ function sendPlan(){
   let p;
   try{p=payload()}catch(e){return}
   const items=[];
+  let ready=!!S.configured&&!!p.target&&Array.isArray(p.types)&&p.types.length>0;
+  if(p.types.includes('video')&&!(p.video&&p.video.id))ready=false;
+  if(p.types.includes('audio')&&!(p.audio&&p.audio.id))ready=false;
+  if(p.target==='drive'&&p.types.includes('data')&&!(p.drive&&p.drive.fileId&&p.drive.sheetName&&p.drive.category))ready=false;
   if(playerData){
     if(p.types.includes('video')){const x=spec('video',playerData);items.push({kind:'video',name:x.name,picker:x.picker})}
     if(p.types.includes('audio')){const x=spec('audio',playerData);items.push({kind:'audio',name:x.name,picker:x.picker})}
     if(p.types.includes('data')){const x=spec('data',playerData,p.data&&p.data.format);items.push({kind:'data',name:x.name,picker:x.picker})}
   }
-  window.top.postMessage({type:'YTDL_SAVE_PLAN',token:parent.__YTDL_TOKEN,target:p.target||'',types:p.types||[],busy:!!S.busy,configured:!!S.configured,items:items},parent.location.origin);
+  window.top.postMessage({type:'YTDL_SAVE_PLAN',token:parent.__YTDL_TOKEN,target:p.target||'',types:p.types||[],busy:!!S.busy,configured:!!S.configured,ready:!!ready,items:items},parent.location.origin);
 }
 window.__YTDL_RUN_SAVE=function(){if(!runSave||S.busy)return;Promise.resolve(runSave.call(hostSave)).catch(function(){})};
 let planTimer=0;
