@@ -4,92 +4,85 @@
 
 ```text
 bookmarklet.js
-→ 고정 호스트 로더 + 상위 페이지 저장/닫기 바
+→ 5,000자 이하 고정 로더
+→ 별도 Google 연결 탭 생성
+→ ui.html Blob iframe 표시
 
 ui.html
 → 실제 YouTube 추출/저장/UI 코어
 
 Transport.gs
-→ Apps Script POST 브리지 + UI HTML 응답 + host shim
+→ top-level Apps Script 브리지
+→ google.script.run RPC
 
 Code.gs
 → Google Sheets 처리
 ```
 
-YouTube 추출 규칙과 사용자 기능을 `bookmarklet.js`에 누적하지 않습니다. 단, 브라우저 사용자 활성화가 반드시 필요한 로컬 파일 선택은 상위 YouTube 문서에서 처리합니다.
+YouTube 추출 규칙과 사용자 기능을 `bookmarklet.js`에 누적하지 않습니다.
 
 ## 2. bookmarklet.js 책임
 
 ```text
 공용 Apps Script /exec 주소 보유
 실행 token 생성
-숨은 bridge iframe + form POST
-bridgeNonce 발급/재연결
-화면용 iframe 생성
-mode=ui POST
-Apps Script UI와 YouTube 상위 페이지 연결
-허용된 YouTube fetch 프록시
-상위 페이지 고정 저장/닫기 바
-로컬 File System Access API 실행
-로컬 파일/폴더 handle 보관과 쓰기
-종료 시 iframe/listener/handle 정리
+별도 Google 연결 탭 즉시 생성
+mode=bridge POST
+Google READY sender window + origin 고정
+ui.html Blob URL 생성/표시
+parent.__YTDL_CALL 제공
+종료 시 UI/Blob/연결 탭 정리
 ```
 
-북마클릿은 화면 본문 HTML을 만들지 않습니다. `iframe.srcdoc`과 Blob URL도 사용하지 않습니다.
+승인을 확인하기 위한 숨은 iframe이나 15초 승인 대기 팝업은 사용하지 않습니다. 현재 YouTube 탭을 승인 페이지로 이동시키지도 않습니다.
 
-## 3. ui.html 책임
+## 3. Transport.gs 책임
+
+```text
+mode=bridge 처리
+Google 승인 세션의 top-level 연결 페이지 생성
+window.top.opener로 YouTube 창 연결
+google.script.run.bridgeTopDispatch()
+create-storage
+Code.gs dispatch 전달
+```
+
+Apps Script HTML Service 내부 sandbox window가 실제 `postMessage` sender가 될 수 있으므로 YouTube는 최초 `YTDL_BRIDGE_READY`를 보낸 `event.source`와 Google origin을 이후 채널로 고정합니다.
+
+## 4. ui.html 책임
 
 ```text
 일반 영상/Shorts ID 확인
-youtubei/player 호출 로직
+youtubei/player 호출
 영상/음성 후보 생성
-전체 사용자 화면
 데이터 선택/추출/출력
-파일 → 시트 → 카테고리 선택
+파일 → 시트 → 카테고리
 관리정보
 중복 처리
-Apps Script action 호출
-로컬 저장 실행 로직
-Drive 저장 영역
+로컬 저장
+Drive 저장
 ```
 
-`ui.html`은 Apps Script HTML Service iframe에서 실행됩니다. YouTube 페이지에 직접 접근할 수 없으므로 Transport가 넣는 host shim을 통해 필요한 기능만 상위 YouTube 페이지에 요청합니다.
+UI 원본은 Google 연결 탭에서 전달받지만 실제 UI는 YouTube 문서가 만든 Blob iframe에서 실행됩니다. 따라서 기존 `parent.document`, `parent.location`, `parent.fetch`, `parent.ytcfg`, `parent.__YTDL_CALL` 인터페이스를 유지합니다.
 
-기존 `ui.html`의 내부 저장 버튼은 host mode에서 숨기고, 화면 하단에는 상위 YouTube 문서가 만든 실제 `저장 / 닫기` 버튼을 표시합니다.
+`iframe.srcdoc`은 사용하지 않습니다.
 
-## 4. 호스트 프록시
-
-ui.html이 사용하는 기존 인터페이스는 가상 parent 객체로 유지합니다.
+## 5. Apps Script 요청
 
 ```text
-parent.document       현재 영상 메타데이터 보기
-parent.location       현재 YouTube URL
-parent.fetch          허용된 YouTube 요청 프록시
-parent.ytcfg.get      youtubei context/key 보기
-parent.__YTDL_CALL    Apps Script action
-parent.__YTDL_CLOSE   실행 종료
+ui.html
+→ parent.__YTDL_CALL(action,payload)
+→ YTDL_BRIDGE_REQUEST
+→ 인증된 Google 연결 탭
+→ google.script.run.bridgeTopDispatch
+→ bridgeDispatch_
+→ Code.gs dispatch
+→ YTDL_BRIDGE_RESPONSE
 ```
 
-실제 YouTube DOM 전체나 쿠키 객체를 UI에 전달하지 않습니다.
-
-## 5. 저장 계획 동기화
-
-UI는 현재 선택 상태가 바뀔 때 상위 페이지로 저장 계획만 전달합니다.
-
-```text
-YTDL_SAVE_PLAN
-- configured
-- busy
-- target
-- types
-- 항목별 파일명 / picker 옵션
-```
-
-미디어 실제 URL이나 FileSystemHandle은 저장 계획에 포함하지 않습니다.
+OAuth access/refresh token은 YouTube나 GitHub에 전달하지 않습니다.
 
 ## 6. YouTube player
-
-UI 코어의 호출 규격:
 
 ```js
 fetch('https://www.youtube.com/youtubei/v1/player',{
@@ -113,12 +106,9 @@ fetch('https://www.youtube.com/youtubei/v1/player',{
 })
 ```
 
-실제 네트워크 요청은 host fetch 프록시가 YouTube 페이지에서 수행합니다.
-
 - 영상: `streamingData.formats`의 direct `video/mp4`
 - 음성: `adaptiveFormats`의 direct `audio/mp4`
-- 실제 URL은 현재 실행 메모리의 후보 Map에만 보관
-- UI select에는 후보 ID와 품질만 표시
+- 실제 URL은 현재 실행 메모리에만 보관
 
 ## 7. Google 저장공간
 
@@ -143,56 +133,46 @@ ui.html 시작
 
 ```text
 데이터 + Drive
-→ 상위 저장 버튼 클릭
-→ YTDL_HOST_SAVE
 → ui.html collect
-→ host gas
-→ POST bridge
-→ save-record
+→ __YTDL_CALL('save-record')
+→ Google 연결 탭
+→ Apps Script
 → SpreadsheetApp
 ```
 
-이번 실행에서 실제로 얻은 필드만 `record`에 포함합니다. 중복 업데이트에서는 사용자가 이번 실행에서 실제 변경한 관리정보만 갱신합니다.
+이번 실행에서 실제로 얻은 필드만 `record`에 포함하며, 중복 업데이트에서는 이번 실행에서 실제 변경한 관리정보만 갱신합니다.
 
 ## 9. 로컬 저장과 user activation
 
-File System Access API는 반드시 상위 YouTube 페이지의 실제 사용자 클릭에서 시작합니다.
+Blob UI에서 사용자가 `[저장]`을 누른 클릭을 기준으로 picker 호출을 상위 YouTube window에 동기 위임합니다.
 
 ```text
-UI 선택 상태
-→ YTDL_SAVE_PLAN으로 상위 페이지에 미리 동기화
-→ 사용자가 상위 페이지의 [저장] 버튼 직접 클릭
-→ 단일: showSaveFilePicker() 즉시 호출
-→ 복수: showDirectoryPicker() 즉시 호출
-→ 실제 handle을 호스트 Map에 저장
-→ YTDL_HOST_SAVE + 임시 handle ID
-→ ui.html의 기존 saveLocal 실행
-→ write-text / write-media
+showSaveFilePicker / showDirectoryPicker
+→ parent의 동일 API 즉시 호출
+→ 실제 FileSystemHandle 확보
+→ ui.html saveLocal 계속 실행
 ```
 
-`postMessage` 뒤에서 파일 선택창을 새로 여는 방식은 사용하지 않습니다. 따라서 cross-origin iframe 경계를 지나며 user activation이 사라지는 문제를 피합니다.
+파일 선택 전에 장시간 데이터 수집이나 비동기 Apps Script 호출을 넣지 않습니다.
 
-미디어 기록은 검증된 GoogleVideo URL만 허용하고 `Range: bytes=0-` 요청을 사용합니다.
+미디어 기록은 검증된 GoogleVideo direct URL과 `Range: bytes=0-` 경로를 사용합니다.
 
 ## 10. 영상/음성 Drive
 
 ```text
-상위 저장 버튼 클릭
-→ YTDL_HOST_SAVE
-→ ui.html
+ui.html
 → Google Save to Drive 버튼 준비
-→ 사용자가 공식 Google 버튼을 눌러 My Drive 저장
+→ 사용자가 공식 Google 버튼 클릭
+→ My Drive 저장
 ```
 
-Sheets 데이터 저장 경로와 별도입니다.
+버튼 렌더링은 저장 완료가 아닙니다.
 
 ## 11. 고정 로더 원칙
 
-향후 UI, 추출 필드, 댓글/자막 처리, Sheets 규칙, Drive 표시 변경은 Apps Script 파일 쪽에서 처리합니다.
+향후 UI, 추출 필드, 댓글/자막, Sheets 규칙, Drive 표시 변경은 `ui.html`, `Transport.gs`, `Code.gs`에서 처리합니다.
 
-고정 로더를 바꿔야 하는 범위는 상위 페이지에서만 가능한 브라우저 권한/통신 프로토콜 자체가 바뀌는 경우로 제한합니다.
-
-모바일 Whale 북마크 URL 제약 때문에 **배포용 `bookmarklet.js`는 5,000자 이내를 절대 상한으로 유지**합니다. 실무 목표는 UTF-8 기준 5,000바이트도 넘지 않게 유지하는 것입니다.
+Android Whale 배포용 `bookmarklet.js`는 **5,000자 이내를 절대 상한**으로 유지합니다.
 
 ## 12. 영구 저장 금지
 
@@ -202,7 +182,7 @@ Sheets 데이터 저장 경로와 별도입니다.
 인증 쿠키
 Google OAuth access/refresh token
 YouTube 로그인 정보
-bridge nonce/token
+실행 token
 ```
 
 이 값들은 실행 종료 시 폐기합니다.
