@@ -15,7 +15,7 @@ ui.html player()
 
 실제 미디어 URL은 현재 UI 실행 메모리에만 둡니다.
 
-## 2. UI 선택
+## 2. UI 선택과 저장 계획
 
 사용자는 `영상`, `음성`, 또는 둘 다 선택할 수 있습니다.
 
@@ -25,15 +25,43 @@ ui.html player()
 저장 위치 → 로컬
 ```
 
-## 3. 단일 파일 저장
+선택 상태가 바뀔 때 `ui.html`은 상위 페이지에 `YTDL_SAVE_PLAN`을 보냅니다.
+
+```text
+저장 대상 종류
+파일명
+picker 옵션
+busy / configured 상태
+```
+
+실제 미디어 URL이나 FileSystemHandle은 저장 계획에 넣지 않습니다.
+
+## 3. 사용자 활성화 보존
+
+Apps Script UI는 cross-origin iframe이므로 iframe 안의 클릭을 `postMessage`로 부모에 넘긴 뒤 `showSaveFilePicker()`를 호출하는 방식은 사용하지 않습니다.
+
+화면 하단의 실제 `저장 / 닫기` 버튼은 YouTube 상위 문서가 만듭니다. 사용자가 이 `저장` 버튼을 직접 누른 동일한 click handler 안에서 파일/폴더 선택창을 즉시 엽니다.
 
 ```text
 사용자 [저장]
-→ ui.html의 showSaveFilePicker 호환 함수
-→ YTDL_HOST_REQUEST / pick-file
-→ 상위 YouTube 페이지에서 실제 showSaveFilePicker()
+→ 상위 YouTube 문서 click handler
+→ showSaveFilePicker() 또는 showDirectoryPicker() 즉시 호출
+→ 실제 handle 확보
+→ 그 다음에만 YTDL_HOST_SAVE 전송
+```
+
+이 순서로 cross-origin `postMessage` 때문에 user activation이 소실되는 문제를 피합니다.
+
+## 4. 단일 파일 저장
+
+```text
+사용자 [저장]
+→ 상위 페이지 showSaveFilePicker()
 → 실제 FileSystemFileHandle은 호스트 Map에 보관
-→ UI에는 임시 handle ID만 반환
+→ 임시 fileId 발급
+→ YTDL_HOST_SAVE {local:{fileId}}
+→ ui.html 기존 saveLocal() 실행
+→ shim의 showSaveFilePicker() 호환 함수가 임시 handle을 반환
 ```
 
 영상/음성 기록:
@@ -47,20 +75,23 @@ ui.html player()
 → response.body.pipeTo(await handle.createWritable())
 ```
 
-## 4. 복수 파일 저장
+## 5. 복수 파일 저장
 
 영상, 음성, 데이터를 둘 이상 함께 로컬 저장하면 폴더 선택을 사용합니다.
 
 ```text
-pick-dir
+사용자 [저장]
 → 상위 페이지 showDirectoryPicker()
 → 실제 DirectoryHandle은 호스트 Map에 보관
+→ 임시 dirId 발급
+→ YTDL_HOST_SAVE {local:{dirId}}
+→ ui.html 기존 saveLocal() 실행
 → 항목별 dir-file
 → 임시 FileHandle ID 반환
 → write-media / write-text
 ```
 
-## 5. 영상 저장
+## 6. 영상 저장
 
 ```text
 영상 제목 기반 .mp4 파일명 생성
@@ -79,7 +110,7 @@ pick-dir
 
 고화질 분리 스트림 mux는 이 경로에 포함하지 않습니다.
 
-## 6. 음성 저장
+## 7. 음성 저장
 
 ```text
 영상 제목 기반 .m4a 파일명 생성
@@ -89,11 +120,22 @@ pick-dir
 
 현재 검증 경로는 `audio/mp4` 계열입니다.
 
-## 7. 사용자 활성화
+## 8. 데이터와 함께 저장
 
-Apps Script UI는 cross-origin iframe이지만 사용자가 UI 안의 `[저장]`을 직접 누른 동작을 기준으로 즉시 host file action을 요청합니다. 파일 선택 동작 사이에 데이터 수집 같은 장시간 작업을 먼저 넣지 않습니다.
+`영상 + 음성 + 데이터`처럼 복수 선택한 경우에도 파일 선택은 데이터 수집보다 먼저 끝냅니다.
 
-## 8. 상태 처리
+```text
+상위 [저장]
+→ 폴더 handle 확보
+→ UI 저장 실행
+→ 영상/음성 write-media
+→ 데이터 collect
+→ write-text
+```
+
+데이터 수집 시간이 길어도 이미 확보한 DirectoryHandle을 사용하므로 user activation을 다시 요구하지 않습니다.
+
+## 9. 상태 처리
 
 각 항목은 독립적으로 결과를 기록합니다.
 
@@ -105,7 +147,7 @@ Apps Script UI는 cross-origin iframe이지만 사용자가 UI 안의 `[저장]`
 
 한 항목의 실패가 다른 항목의 성공 결과를 취소하지 않습니다.
 
-## 9. 저장 경계
+## 10. 저장 경계
 
 실행 중 영구 저장하지 않는 값:
 
