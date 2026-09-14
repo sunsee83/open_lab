@@ -20,6 +20,15 @@ const YTDL_REMOTE_ = Object.freeze({
   REPO: 'https://github.com/sunsee83/open_lab/tree/main/bookmarklets/youtube'
 });
 
+/*
+Apps Script는 정적 소스에서 OAuth 범위를 추론합니다.
+실제 Sheets 코드는 GitHub에서 런타임에 로드되므로 이 함수가 Spreadsheet 권한을
+Google 승인 화면에 포함시키는 고정 힌트 역할을 합니다. 실행용 함수가 아닙니다.
+*/
+function ytOAuthScopeAnchor_() {
+  SpreadsheetApp.openById('scope-detection-only');
+}
+
 function doGet(e) {
   const mode = String(e && e.parameter && e.parameter.mode || '');
   if (!mode || mode === 'info') return ytInfoOutput_(mode === '');
