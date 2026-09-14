@@ -64,13 +64,22 @@ function ytInfoOutput_() {
   try {
     const info = ytProjectInfo_();
     const quick = Array.isArray(info.quickView) ? info.quickView : [];
+    const fixed = info.fixed || {};
     const repo = info.urls && info.urls.repository || YTDL_REMOTE_.REPO;
+    const webApp = info.urls && info.urls.webApp || '';
     const items = quick.map(function (x) { return '<li>' + ytHtml_(x) + '</li>'; }).join('');
+    const details = [
+      fixed.bookmark ? '북마크: ' + fixed.bookmark : '',
+      fixed.appsScriptProject ? 'Apps Script: ' + fixed.appsScriptProject : '',
+      fixed.sheetFile ? 'Sheets: ' + fixed.sheetFile : '',
+      webApp ? 'WebApp: ' + webApp : ''
+    ].filter(Boolean).map(function (x) { return '<div>' + ytHtml_(x) + '</div>'; }).join('');
     return HtmlService.createHtmlOutput(
       '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
       '<style>body{margin:0;background:#111;color:#eee;font:15px/1.55 system-ui;padding:24px}.box{max-width:680px;margin:auto;padding:20px;border:1px solid #333;border-radius:14px;background:#181818}h1{font-size:20px;margin:0 0 12px}li{margin:7px 0}a{color:#9ecbff;word-break:break-all}</style></head><body><div class="box">' +
       '<h1>' + ytHtml_(info.project && info.project.name || '유튜브다운로드') + '</h1>' +
       '<div>' + ytHtml_(info.project && info.project.summary || '') + '</div><ul>' + items + '</ul>' +
+      '<div style="margin:12px 0">' + details + '</div>' +
       '<div><a href="' + ytHtml_(repo) + '" target="_blank">GitHub 프로젝트 열기</a></div>' +
       '</div></body></html>'
     ).setTitle('유튜브다운로드 - 프로젝트 정보');
