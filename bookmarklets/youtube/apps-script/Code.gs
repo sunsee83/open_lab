@@ -1,7 +1,7 @@
 /*
 유튜브다운로드 · Google Apps Script 고정 로더
 
-이 파일만 Google Apps Script 프로젝트 `유튜브다운로드앱_v1`에 유지합니다.
+이 파일과 `appsscript.json`만 Google Apps Script 프로젝트 `유튜브다운로드앱_v1`에 유지합니다.
 일반 기능 수정은 Google에서 하지 않고 GitHub에서 합니다.
 
 프로젝트 정보 원본:
@@ -87,7 +87,7 @@ function ytInfoOutput_(approvalReturn) {
     const quick = Array.isArray(info.quickView) ? info.quickView : [];
     const links = info.urls || {};
     const notice = approvalReturn
-      ? '<div class="notice">Google 승인 후 이 화면으로 돌아왔다면 탭을 닫고 YouTube에서 <b>유튜브다운로드</b>를 다시 실행하세요.</div>'
+      ? '<div class="notice">Google 승인 과정에서 이 화면으로 돌아왔다면 YouTube 탭으로 돌아가세요. 실행 중인 <b>유튜브다운로드</b>가 자동으로 연결을 다시 시도합니다.</div>'
       : '';
     const items = quick.map(function (x) { return '<li>' + ytHtml_(x) + '</li>'; }).join('');
     const repo = links.repository || YTDL_REMOTE_.REPO;
