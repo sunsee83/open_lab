@@ -37,15 +37,15 @@ function bridgeTopHtml_(origin, token) {
   return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<style>body{margin:0;background:#111;color:#eee;font:15px/1.5 system-ui;padding:24px}.box{max-width:520px;margin:auto;padding:18px;border:1px solid #333;border-radius:14px;background:#181818}.sub{margin-top:8px;color:#aaa;font-size:13px}</style>' +
     '</head><body><div class="box"><b>유튜브다운로드 · Google 연결</b><div id="s" class="sub">YouTube와 연결 중…</div></div>' +
-    '<script>(function(){"use strict";const O=' + o + ',T=' + t + ',H=' + h + ',S=document.getElementById("s");' +
-    'function post(m){try{if(window.opener&&!window.opener.closed)window.opener.postMessage(m,O)}catch(e){}}' +
-    'window.addEventListener("message",function(e){if(e.source!==window.opener||e.origin!==O)return;const m=e.data;if(!m||m.token!==T)return;' +
-    'if(m.type==="YTDL_BRIDGE_CLOSE"){try{window.close()}catch(x){}return}' +
+    '<script>(function(){"use strict";const O=' + o + ',T=' + t + ',H=' + h + ',S=document.getElementById("s"),OP=(function(){try{return window.top.opener}catch(e){return null}})();' +
+    'function post(m){try{if(OP&&!OP.closed)OP.postMessage(m,O)}catch(e){}}' +
+    'window.addEventListener("message",function(e){if(e.source!==OP||e.origin!==O)return;const m=e.data;if(!m||m.token!==T)return;' +
+    'if(m.type==="YTDL_BRIDGE_CLOSE"){try{window.top.close()}catch(x){}return}' +
     'if(m.type!=="YTDL_BRIDGE_REQUEST"||typeof m.id!=="string")return;' +
     'google.script.run.withSuccessHandler(function(r){if(r&&r.ok)post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:true,data:r.data});else post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:false,error:r&&r.error||{message:"Google 요청 실패"}})}).withFailureHandler(function(x){post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:false,error:{message:x&&x.message||"Google 요청 실패"}})}).bridgeTopDispatch(m.request);' +
     '});' +
-    'if(!window.opener){S.textContent="YouTube 연결 창을 찾지 못했습니다. 이 탭을 닫고 YouTube에서 다시 실행해 주세요.";return}' +
-    'post({type:"YTDL_BRIDGE_READY",token:T,html:H});S.textContent="연결 완료 · YouTube 화면으로 돌아가세요.";try{window.opener.focus()}catch(e){}' +
+    'if(!OP){S.textContent="YouTube 연결 창을 찾지 못했습니다. 이 탭을 닫고 YouTube에서 다시 실행해 주세요.";return}' +
+    'post({type:"YTDL_BRIDGE_READY",token:T,html:H});S.textContent="연결 완료 · YouTube 화면으로 돌아가세요.";try{OP.focus()}catch(e){}' +
     '})();<\/script></body></html>';
 }
 
