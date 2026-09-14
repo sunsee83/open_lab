@@ -45,13 +45,8 @@ function ytRuntime_() {
 }
 
 function ytRemoteText_(path) {
-  if ([YTDL_REMOTE_.UI, YTDL_REMOTE_.INFO].indexOf(path) < 0) {
-    throw new Error('허용되지 않은 원격 파일입니다.');
-  }
-  const response = UrlFetchApp.fetch(ytRemoteUrl_(path), {
-    muteHttpExceptions: true,
-    followRedirects: true
-  });
+  if ([YTDL_REMOTE_.UI, YTDL_REMOTE_.INFO].indexOf(path) < 0) throw new Error('허용되지 않은 원격 파일입니다.');
+  const response = UrlFetchApp.fetch(ytRemoteUrl_(path), { muteHttpExceptions: true, followRedirects: true });
   const code = response.getResponseCode();
   if (code < 200 || code >= 300) throw new Error(path + ' HTTP ' + code);
   return response.getContentText('UTF-8');
@@ -76,7 +71,7 @@ function ytInfoOutput_() {
       '<style>body{margin:0;background:#111;color:#eee;font:15px/1.55 system-ui;padding:24px}.box{max-width:680px;margin:auto;padding:20px;border:1px solid #333;border-radius:14px;background:#181818}h1{font-size:20px;margin:0 0 12px}li{margin:7px 0}a{color:#9ecbff;word-break:break-all}</style></head><body><div class="box">' +
       '<h1>' + ytHtml_(info.project && info.project.name || '유튜브다운로드') + '</h1>' +
       '<div>' + ytHtml_(info.project && info.project.summary || '') + '</div><ul>' + items + '</ul>' +
-      '<div><a href="' + ytAttr_(repo) + '" target="_blank">GitHub 프로젝트 열기</a></div>' +
+      '<div><a href="' + ytHtml_(repo) + '" target="_blank">GitHub 프로젝트 열기</a></div>' +
       '</div></body></html>'
     ).setTitle('유튜브다운로드 - 프로젝트 정보');
   } catch (err) {
@@ -90,7 +85,7 @@ function ytFallbackOutput_(message, err) {
     '<style>body{margin:0;background:#111;color:#eee;font:15px/1.55 system-ui;padding:24px}.box{max-width:680px;margin:auto;padding:20px;border:1px solid #333;border-radius:14px;background:#181818}a{color:#9ecbff;word-break:break-all}.sub{color:#aaa;font-size:13px;margin-top:10px}</style></head><body><div class="box">' +
     '<b>유튜브다운로드</b><div style="margin-top:10px">' + ytHtml_(message) + '</div>' +
     '<div class="sub">' + ytHtml_(err && err.message || '') + '</div>' +
-    '<div style="margin-top:12px"><a href="' + ytAttr_(YTDL_REMOTE_.REPO) + '" target="_blank">GitHub 프로젝트 열기</a></div>' +
+    '<div style="margin-top:12px"><a href="' + ytHtml_(YTDL_REMOTE_.REPO) + '" target="_blank">GitHub 프로젝트 열기</a></div>' +
     '</div></body></html>'
   ).setTitle('유튜브다운로드');
 }
@@ -103,8 +98,4 @@ function ytHtml_(value) {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function ytAttr_(value) {
-  return ytHtml_(value);
 }
