@@ -74,16 +74,44 @@ function bridgeUiHtml_(origin, token) {
   const i = html.indexOf(start);
   const j = html.lastIndexOf(end);
   if (i < 0 || j <= i) throw new Error('UI_SCRIPT_NOT_FOUND');
+  const hostCss = '<style id="ytdl-host-mode">.footer{display:none!important}.screen{padding-bottom:96px!important}</style>\n';
   const shim = '<script>' + bridgeUiShim_(origin, token) + '</script>\n';
   const body = html.slice(i + start.length, j);
-  return html.slice(0, i) + shim + '<script>\nwindow.__YTDL_BOOT.then(()=>{const parent=window.__YTDL_PARENT;' + body + '\n});\n</script>' + html.slice(j + end.length);
+  return html.slice(0, i) + hostCss + shim + '<script>\nwindow.__YTDL_BOOT.then(()=>{const parent=window.__YTDL_PARENT;' + body + bridgeUiHostTail_() + '\n});\n</script>' + html.slice(j + end.length);
+}
+
+function bridgeUiHostTail_() {
+  return `
+;(function(){
+const hostSave=q('#save'),runSave=hostSave&&hostSave.onclick;
+if(hostSave)hostSave.onclick=null;
+function sendPlan(){
+  let p;
+  try{p=payload()}catch(e){return}
+  const items=[];
+  if(playerData){
+    if(p.types.includes('video')){const x=spec('video',playerData);items.push({kind:'video',name:x.name,picker:x.picker})}
+    if(p.types.includes('audio')){const x=spec('audio',playerData);items.push({kind:'audio',name:x.name,picker:x.picker})}
+    if(p.types.includes('data')){const x=spec('data',playerData,p.data&&p.data.format);items.push({kind:'data',name:x.name,picker:x.picker})}
+  }
+  window.top.postMessage({type:'YTDL_SAVE_PLAN',token:parent.__YTDL_TOKEN,target:p.target||'',types:p.types||[],busy:!!S.busy,configured:!!S.configured,items:items},parent.location.origin);
+}
+window.__YTDL_RUN_SAVE=function(){if(!runSave||S.busy)return;Promise.resolve(runSave.call(hostSave)).catch(function(){})};
+let planTimer=0;
+function queuePlan(){clearTimeout(planTimer);planTimer=setTimeout(sendPlan,0)}
+document.addEventListener('click',queuePlan,true);
+document.addEventListener('change',queuePlan,true);
+document.addEventListener('input',queuePlan,true);
+try{new MutationObserver(queuePlan).observe(root,{subtree:true,childList:true,characterData:true,attributes:true})}catch(e){}
+queuePlan();
+})();`;
 }
 
 function bridgeUiShim_(origin, token) {
   const o = jsLiteral_(origin);
   const t = jsLiteral_(token);
   return `(function(){"use strict";
-const O=${o},T=${t},P=new Map();let s=0,bootResolve,C={};
+const O=${o},T=${t},P=new Map();let s=0,bootResolve,C={},L=null;
 function rid(){return'u'+Date.now().toString(36)+(++s).toString(36)}
 function rpc(action,payload){return new Promise((resolve,reject)=>{const id=rid(),z=setTimeout(()=>{P.delete(id);reject(new Error('YouTube 연결 응답이 없습니다.'))},1800000);P.set(id,{resolve,reject,z});window.top.postMessage({type:'YTDL_HOST_REQUEST',token:T,id,action,payload:payload||{}},O)})}
 function opts(x){x=x||{};return{method:x.method||'GET',credentials:x.credentials||'omit',headers:x.headers||{},body:x.body==null?null:String(x.body)}}
@@ -94,9 +122,9 @@ async function hostFetch(url,o){url=String(url);if(mediaUrl(url))return{ok:true,
 function metaDoc(){const M=C.meta||{},map={'meta[property="og:title"]':'ogTitle','meta[property="og:image"]':'ogImage','meta[itemprop="datePublished"]':'datePublished','meta[name="description"]':'description'};return{title:String(C.title||''),querySelector:q=>{const k=map[q];return k?{content:String(M[k]||'')}:null},querySelectorAll:()=>((C.likeTexts||[]).map(v=>({textContent:String(v),getAttribute:n=>n==='aria-label'?String(v):n==='title'?String(v):''})))}}
 function makeParent(){const y=C.ytcfg||{};return{document:metaDoc(),location:{href:String(C.href||''),search:String(C.search||''),pathname:String(C.pathname||''),origin:O},fetch:hostFetch,ytcfg:{get:n=>y[n]},ytInitialData:{},open:(url,target)=>rpc('open',{url:String(url||''),target:String(target||'_blank')}),__YTDL_CALL:(a,p)=>rpc('gas',{action:a,payload:p||{}}),__YTDL_WEBAPP_URL:String(C.webapp||''),__YTDL_TOKEN:T,__YTDL_CLOSE:()=>rpc('close',{})}}
 window.__YTDL_BOOT=new Promise(r=>bootResolve=r);
-try{Object.defineProperty(window,'showSaveFilePicker',{configurable:true,value:async o=>{const r=await rpc('pick-file',{options:o||{}});return fakeFile(r.id)}})}catch(e){window.showSaveFilePicker=async o=>{const r=await rpc('pick-file',{options:o||{}});return fakeFile(r.id)}}
-try{Object.defineProperty(window,'showDirectoryPicker',{configurable:true,value:async()=>{const r=await rpc('pick-dir',{});return fakeDir(r.id)}})}catch(e){window.showDirectoryPicker=async()=>{const r=await rpc('pick-dir',{});return fakeDir(r.id)}}
-window.addEventListener('message',e=>{if(e.source!==window.top||e.origin!==O)return;const m=e.data;if(!m||m.token!==T)return;if(m.type==='YTDL_HOST_INIT'){C=m.context||{};window.__YTDL_PARENT=makeParent();bootResolve();return}if(m.type!=='YTDL_HOST_RESPONSE')return;const p=P.get(String(m.id||''));if(!p)return;P.delete(String(m.id));clearTimeout(p.z);m.ok?p.resolve(m.data):p.reject(new Error(m.error&&m.error.message||'YouTube 연결 실패'))});
+try{Object.defineProperty(window,'showSaveFilePicker',{configurable:true,value:async()=>{const id=L&&L.fileId;if(!id)throw new Error('로컬 저장 준비 정보가 없습니다.');L.fileId='';return fakeFile(id)}})}catch(e){window.showSaveFilePicker=async()=>{const id=L&&L.fileId;if(!id)throw new Error('로컬 저장 준비 정보가 없습니다.');L.fileId='';return fakeFile(id)}}
+try{Object.defineProperty(window,'showDirectoryPicker',{configurable:true,value:async()=>{const id=L&&L.dirId;if(!id)throw new Error('로컬 저장 준비 정보가 없습니다.');L.dirId='';return fakeDir(id)}})}catch(e){window.showDirectoryPicker=async()=>{const id=L&&L.dirId;if(!id)throw new Error('로컬 저장 준비 정보가 없습니다.');L.dirId='';return fakeDir(id)}}
+window.addEventListener('message',e=>{if(e.source!==window.top||e.origin!==O)return;const m=e.data;if(!m||m.token!==T)return;if(m.type==='YTDL_HOST_INIT'){C=m.context||{};window.__YTDL_PARENT=makeParent();bootResolve();return}if(m.type==='YTDL_HOST_SAVE'){L=m.local||null;Promise.resolve().then(()=>window.__YTDL_RUN_SAVE&&window.__YTDL_RUN_SAVE());return}if(m.type!=='YTDL_HOST_RESPONSE')return;const p=P.get(String(m.id||''));if(!p)return;P.delete(String(m.id));clearTimeout(p.z);m.ok?p.resolve(m.data):p.reject(new Error(m.error&&m.error.message||'YouTube 연결 실패'))});
 window.top.postMessage({type:'YTDL_UI_READY',token:T},O);
 })();`;
 }
