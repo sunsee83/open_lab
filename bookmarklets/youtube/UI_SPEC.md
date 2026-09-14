@@ -17,7 +17,9 @@
 Google 권한 승인 후 저장공간은 자동 구성합니다. 사용자가 최초 설정을 위해 Sheets 파일을 직접 만들거나 주소를 붙여넣지 않습니다.
 
 ```text
-승인
+Google 승인
+→ YouTube로 복귀
+→ 유튜브다운로드 다시 실행
 → 유튜브다운로드sheet_v1 자동 생성
 → 수집 시트
 → 기본 카테고리
@@ -67,7 +69,7 @@ Google 권한 승인 후 저장공간은 자동 구성합니다. 사용자가 �
 [ 실제 가능한 음질 ▼ ]
 ```
 
-실제 media URL은 UI에 상시 저장하지 않고 후보 ID만 사용합니다.
+실제 media URL은 화면에 노출하지 않고 현재 실행 메모리의 후보 Map에만 둡니다. UI select에는 후보 ID와 품질만 표시합니다.
 
 ## 5. 데이터
 
@@ -130,7 +132,7 @@ Google 권한 승인 후 저장공간은 자동 구성합니다. 사용자가 �
 AI에게 보낼 항목 표시
 ```
 
-중요도 미선택은 `0`을 Sheets에 쓰는 것이 아니라 해당 값을 전달하지 않는 방식으로 처리합니다.
+중요도 미선택은 `0`을 Sheets에 쓰지 않고 해당 값을 전달하지 않습니다.
 
 중복 업데이트에서는 이번 실행에서 사용자가 직접 바꾼 관리정보만 갱신합니다. 건드리지 않은 관리정보는 기존값을 유지하며, 사용자가 직접 비운 값만 명시적 삭제로 전달합니다.
 
@@ -147,27 +149,35 @@ AI에게 보낼 항목 표시
 
 ## 9. 로컬 저장
 
-한 종류는 파일 선택창, 여러 종류는 폴더 선택창을 사용합니다. 파일/폴더 선택은 사용자가 `저장`을 누른 직후 실행해야 합니다.
+한 종류는 파일 선택창, 여러 종류는 폴더 선택창을 사용합니다.
+
+Apps Script UI에서 사용자가 `[저장]`을 누르면 host bridge가 상위 YouTube 페이지의 File System Access API를 호출합니다. 실제 파일/폴더 핸들은 상위 페이지에만 보관하고 UI에는 임시 핸들 ID만 제공합니다.
 
 ## 10. UI 전달 방식
 
 ```text
-Apps Script의 ui.html
-→ get-ui
-→ bookmarklet.js
-→ ui.html Blob URL 생성
-→ iframe.src
-→ YouTube 페이지에 전체 화면 UI 표시
+bookmarklet.js
+→ bridge init
+→ 화면 iframe 생성
+→ Apps Script /exec에 mode=ui form POST
+→ Transport.gs
+→ ui.html을 HTML Service 응답으로 표시
+→ YTDL_UI_READY / YTDL_HOST_INIT
+→ 본 화면 초기화
 ```
 
-이 구조로 북마크 URL에는 UI 전체 HTML을 넣지 않습니다.
+화면 HTML 전달에 `iframe.srcdoc`이나 Blob URL을 사용하지 않습니다.
 
-YouTube Trusted Types 정책 때문에 `iframe.srcdoc`은 사용하지 않습니다.
+## 11. Apps Script sandbox 연결
 
-## 11. 저장 결과 표시
+UI는 Apps Script의 `*-script.googleusercontent.com` 계열 실행 origin에서 동작할 수 있습니다. UI의 YouTube 접근과 로컬 파일 기능은 고정 로더의 host bridge를 사용합니다.
+
+UI 기능 코드는 계속 `ui.html`에 두며 추출/화면 기능을 `bookmarklet.js`로 옮기지 않습니다.
+
+## 12. 저장 결과 표시
 
 - Sheets 데이터가 기록된 경우만 `데이터 저장 완료`로 표시
 - Google Save to Drive 버튼만 렌더링된 경우 `Drive 버튼 준비됨`으로 표시
 - 수집하지 못한 선택 필드는 성공한 저장 결과와 분리해 표시
-- Sheets 셀의 49,000자 제한으로 일부가 생략된 경우 해당 열 이름을 표시
+- Sheets 셀의 49,000자 제한으로 일부가 생략된 경우 해당 열 이름 표시
 - 복수 항목 중 일부 실패 시 성공 항목과 실패 항목을 함께 표시
