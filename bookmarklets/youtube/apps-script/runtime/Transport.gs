@@ -34,8 +34,8 @@ function bridgeTopHtml_(origin, token) {
   const ui = ytRemoteText_('ui.html');
   return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<style>body{margin:0;background:#111;color:#eee;font:15px/1.5 system-ui;padding:24px}.box{max-width:520px;margin:auto;padding:18px;border:1px solid #333;border-radius:14px;background:#181818}.sub{margin-top:8px;color:#aaa;font-size:13px}</style>' +
-    '</head><body><div class="box"><b>유튜브다운로드 · Google 연결</b><div id="s" class="sub">YouTube와 연결 중…</div></div>' +
-    '<script>(function(){"use strict";const O=' + jsLiteral_(origin) + ',T=' + jsLiteral_(token) + ',H=' + jsLiteral_(ui) + ',S=document.getElementById("s");let P=(function(){try{return window.top.opener}catch(e){return null}})();' +
+    '</head><body><div class="box"><b>유튜브다운로드 · Google 연결</b><div id="s" class="sub">YouTube 연결 신호를 기다리는 중…</div></div>' +
+    '<script>(function(){"use strict";const O=' + jsLiteral_(origin) + ',T=' + jsLiteral_(token) + ',H=' + jsLiteral_(ui) + ',S=document.getElementById("s");let P=null;' +
     'function post(m){try{if(P&&!P.closed)P.postMessage(m,O)}catch(e){}}' +
     'function ready(){if(!P)return;post({type:"YTDL_BRIDGE_READY",token:T,html:H});S.textContent="연결 완료 · YouTube 화면으로 돌아가세요.";try{P.focus()}catch(e){}}' +
     'window.addEventListener("message",function(e){if(e.origin!==O)return;const m=e.data;if(!m||m.token!==T)return;' +
@@ -45,7 +45,6 @@ function bridgeTopHtml_(origin, token) {
     'if(m.type!=="YTDL_BRIDGE_REQUEST"||typeof m.id!=="string")return;' +
     'google.script.run.withSuccessHandler(function(r){if(r&&r.ok)post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:true,data:r.data});else post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:false,error:r&&r.error||{message:"Google 요청 실패"}})}).withFailureHandler(function(x){post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:false,error:{message:x&&x.message||"Google 요청 실패"}})}).dispatch(m.request);' +
     '});' +
-    'if(P)ready();else S.textContent="YouTube 연결 신호를 기다리는 중…";' +
     '})();<\/script></body></html>';
 }
 
