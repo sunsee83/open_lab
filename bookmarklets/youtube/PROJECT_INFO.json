@@ -1,23 +1,24 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "project": {
     "name": "유튜브다운로드",
     "summary": "Android Whale의 YouTube 페이지에서 영상·음성·데이터를 로컬 또는 Google 저장공간으로 보내는 북마클릿 도구입니다.",
-    "architecture": "github-remote-runtime-v1"
+    "architecture": "github-remote-runtime-v2-hello"
   },
   "quickView": [
-    "북마클릿 = 실행 진입점",
-    "GitHub = 실제 코드와 프로젝트 정보의 원본",
-    "Apps Script = Google 권한과 고정 최소 로더",
+    "북마클릿 = 거의 바꾸지 않는 실행/연결 부트스트랩",
+    "GitHub = 실제 기능 코드와 프로젝트 정보의 원본",
+    "Apps Script = 사용자 Google 권한 + 고정 원격 로더",
     "Google Sheets = 수집 데이터 저장소",
-    "일반 기능 수정은 GitHub만 수정하면 되고 Apps Script 복붙은 하지 않음"
+    "일반 기능 수정은 GitHub만 수정하고 Apps Script 복붙·재배포는 하지 않음"
   ],
   "components": [
     {
       "name": "Whale 북마클릿",
-      "role": "YouTube에서 실행을 시작하고 Google 연결 탭·전체화면 UI·RPC 채널을 관리",
+      "role": "YouTube에서 실행을 시작하고 Google 연결 탭을 열며 HELLO/READY·RPC 채널과 Blob UI 표시를 담당하는 고정 부트스트랩",
       "source": "bookmarklets/youtube/bookmarklet.js",
-      "editWhen": "실행 시작 방식, 브리지 표시 방식, 정보 버튼을 바꿀 때"
+      "editWhen": "웹앱 주소 또는 브리지 프로토콜 자체가 바뀔 때만",
+      "normalRule": "UI·YouTube 수집·Sheets 기능 수정 때는 바꾸지 않음"
     },
     {
       "name": "GitHub UI",
@@ -33,17 +34,23 @@
     },
     {
       "name": "GitHub Apps Script 브리지",
-      "role": "Google 연결 탭과 YouTube 북마클릿 사이의 postMessage/google.script.run 연결",
+      "role": "Google 연결 탭과 YouTube 사이의 HELLO/READY postMessage 및 google.script.run 연결",
       "source": "bookmarklets/youtube/apps-script/runtime/Transport.gs",
       "editWhen": "Google 연결 방식이나 브리지 프로토콜을 바꿀 때"
     },
     {
       "name": "Google Apps Script 고정 로더",
       "project": "유튜브다운로드앱_v1",
-      "role": "GitHub의 최신 런타임을 가져와 Google 권한으로 실행하는 최소 진입점",
+      "role": "GitHub의 최신 런타임을 가져와 현재 사용자의 Google 권한으로 실행하는 최소 진입점",
       "source": "bookmarklets/youtube/apps-script/Code.gs",
       "editWhen": "GitHub 위치나 로더 계약 자체가 바뀔 때만",
-      "normalRule": "최초 1회 붙여넣은 뒤 일반 기능 수정 때는 건드리지 않음"
+      "normalRule": "최초 반영 뒤 일반 기능 수정 때는 건드리지 않음"
+    },
+    {
+      "name": "Google Apps Script 권한 매니페스트",
+      "role": "원격 Backend가 사용하는 Sheets 권한과 GitHub 원격 로딩용 외부 요청 권한을 명시적으로 고정",
+      "source": "bookmarklets/youtube/apps-script/appsscript.json",
+      "editWhen": "Google 서비스 권한 요구사항이 바뀔 때만"
     },
     {
       "name": "Google Sheets",
@@ -54,19 +61,22 @@
   "flow": [
     "YouTube에서 유튜브다운로드 북마클릿 실행",
     "북마클릿이 고정 Apps Script /exec를 별도 Google 탭으로 열기",
+    "북마클릿이 Google 탭과 하위 frame에 YTDL_BRIDGE_HELLO를 반복 전송",
+    "Apps Script 브리지가 올바른 YouTube origin·token의 HELLO를 받으면 event.source를 실제 통신 창으로 채택",
     "Apps Script 고정 로더가 GitHub의 Backend.gs와 Transport.gs를 가져와 실행",
-    "Transport.gs가 GitHub의 ui.html을 가져와 YouTube로 전달",
+    "Transport.gs가 GitHub의 ui.html을 가져와 YTDL_BRIDGE_READY로 YouTube에 전달",
     "YouTube의 Blob iframe에서 UI 실행",
-    "Sheets 요청은 UI → 북마클릿 RPC → Google 연결 탭 → Apps Script dispatch → SpreadsheetApp 순서로 처리"
+    "Sheets 요청은 UI → 북마클릿 RPC → Google 연결 탭 → google.script.run → Apps Script dispatch → SpreadsheetApp 순서로 처리"
   ],
   "editMap": [
     { "change": "화면/UI", "source": "ui.html" },
     { "change": "YouTube 데이터 수집", "source": "ui.html" },
     { "change": "Sheets 저장 로직", "source": "apps-script/runtime/Backend.gs" },
     { "change": "Google 연결/브리지", "source": "apps-script/runtime/Transport.gs" },
-    { "change": "북마클릿 실행 동작", "source": "bookmarklet.js" },
+    { "change": "북마클릿 부트스트랩/브리지 계약", "source": "bookmarklet.js" },
     { "change": "프로젝트 구조 설명", "source": "PROJECT_INFO.json" },
-    { "change": "GitHub 원격 로더 자체", "source": "apps-script/Code.gs" }
+    { "change": "GitHub 원격 로더 자체", "source": "apps-script/Code.gs" },
+    { "change": "Google OAuth 범위", "source": "apps-script/appsscript.json" }
   ],
   "urls": {
     "repository": "https://github.com/sunsee83/open_lab/tree/main/bookmarklets/youtube",
@@ -76,9 +86,10 @@
   "maintenance": {
     "sourceOfTruth": "PROJECT_INFO.json",
     "normalCodeSource": "GitHub main branch",
-    "appsScriptRule": "Google 프로젝트에는 고정 로더 Code.gs만 유지",
-    "deploymentRule": "일반 GitHub 코드 변경은 Apps Script 재복사·재배포 없이 다음 실행부터 반영",
-    "loaderChangeRule": "apps-script/Code.gs 자체를 바꿀 때만 Google에 다시 붙여넣고 기존 웹앱 배포를 새 버전으로 갱신",
-    "securityNote": "GitHub main의 원격 런타임은 Apps Script의 Google 권한으로 실행되므로 저장소 쓰기 권한과 계정 보안을 보호해야 함"
+    "appsScriptRule": "Google 프로젝트에는 고정 Code.gs와 appsscript.json만 유지",
+    "deploymentRule": "ui.html·Backend.gs·Transport.gs 등 일반 GitHub 코드 변경은 Apps Script 재복사·재배포 없이 다음 실행부터 반영",
+    "loaderChangeRule": "apps-script/Code.gs 또는 appsscript.json 자체가 바뀔 때만 Google에 다시 반영하고 기존 웹앱 배포를 새 버전으로 갱신",
+    "bookmarkletRule": "bookmarklet.js는 브리지 계약이 바뀔 때만 Whale에서 교체하며 일반 기능 수정 때는 교체하지 않음",
+    "securityNote": "GitHub main의 원격 런타임은 Apps Script의 사용자 Google 권한으로 실행되므로 저장소 쓰기 권한과 계정 보안을 보호해야 함"
   }
 }
