@@ -12,11 +12,13 @@ YouTube 전용 추출 세부 규칙은 `DATA_EXTRACT_FLOW.md`를 따릅니다.
 - 성공값과 필드별 오류를 하나의 결과 packet으로 유지
 - 원문/TXT/JSON 문자열 생성
 - 파일명 생성
-- host file action 호출
+- 현재 로컬 저장 계획을 host에 미리 전달
+- host가 확보한 임시 handle ID를 사용해 기존 저장 흐름 실행
 
 ### `bookmarklet.js` 호스트
 
-- 실제 `showSaveFilePicker()` / `showDirectoryPicker()` 실행
+- 상위 YouTube 문서의 실제 `저장 / 닫기` 버튼 표시
+- 실제 사용자 클릭에서 `showSaveFilePicker()` / `showDirectoryPicker()` 즉시 실행
 - 실제 File System handle 보관
 - 임시 handle ID 발급
 - `write-text` / `write-media` 실행
@@ -74,14 +76,18 @@ YouTube 전용 추출 세부 규칙은 `DATA_EXTRACT_FLOW.md`를 따릅니다.
 
 ## 6. 로컬 저장 순서
 
-파일/폴더 선택은 데이터 수집보다 먼저 실행합니다.
+파일/폴더 선택은 데이터 수집보다 먼저 실행하며, 브라우저 picker는 iframe 안에서 호출하지 않습니다.
 
 ```text
-사용자 [저장]
-→ 단일 항목: pick-file
-→ 복수 항목: pick-dir + dir-file
+UI 선택 상태
+→ YTDL_SAVE_PLAN으로 파일명/picker 옵션을 host에 미리 동기화
+→ 사용자 상위 [저장] 버튼 직접 클릭
+→ 단일: showSaveFilePicker() 즉시 호출
+→ 복수: showDirectoryPicker() 즉시 호출
 → 상위 YouTube 페이지에서 실제 File System handle 확보
-→ UI에는 임시 handle ID 반환
+→ 임시 handle ID 발급
+→ YTDL_HOST_SAVE
+→ UI의 기존 saveLocal() 실행
 → 선택 데이터 collect()
 → formatData()
 → write-text
@@ -89,6 +95,8 @@ YouTube 전용 추출 세부 규칙은 `DATA_EXTRACT_FLOW.md`를 따릅니다.
 ```
 
 실제 파일 핸들은 `postMessage`로 전달하지 않습니다. 메시지에는 임시 handle ID만 포함합니다.
+
+이 순서에서 파일 선택창은 실제 사용자 click handler 안에서 먼저 열리므로 cross-origin iframe의 `postMessage` 때문에 user activation이 끊기지 않습니다.
 
 ## 7. 파일명
 
@@ -106,13 +114,14 @@ JSON → 영상 제목_데이터.json
 
 `영상 + 음성 + 데이터` 동시 선택을 허용합니다.
 
+- 상위 페이지에서 DirectoryHandle을 먼저 확보
 - 영상/음성: `write-media`
 - 데이터: `write-text`
 - 한 항목 실패가 다른 항목의 완료 결과를 취소하지 않음
 
 ## 9. 취소 / 오류
 
-- 파일/폴더 선택 취소 → 해당 로컬 저장 시작하지 않음
+- 파일/폴더 선택 취소 → `YTDL_HOST_SAVE`를 보내지 않고 로컬 저장 시작하지 않음
 - 데이터 일부 실패 → 확보된 결과 저장 + 오류 항목 포함
 - 파일 쓰기 실패 → 해당 파일만 실패
 - 데이터 실패 → 영상/음성 저장 결과에 영향 없음
