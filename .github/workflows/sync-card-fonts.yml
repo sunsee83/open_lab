@@ -1,0 +1,80 @@
+name: Sync card fonts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-card-fonts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-fonts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download font assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p assets/fonts/atkinson-hyperlegible-next
+          mkdir -p assets/fonts/pretendard
+          mkdir -p assets/fonts/noto-sans
+
+          curl -fL --retry 3 \
+            -o assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Bold.ttf \
+            https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/main/fonts/ttf/AtkinsonHyperlegibleNext-Bold.ttf
+          curl -fL --retry 3 \
+            -o assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-ExtraBold.ttf \
+            https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/main/fonts/ttf/AtkinsonHyperlegibleNext-ExtraBold.ttf
+          curl -fL --retry 3 \
+            -o assets/fonts/atkinson-hyperlegible-next/OFL.txt \
+            https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/main/OFL.txt
+
+          curl -fL --retry 3 \
+            -o assets/fonts/pretendard/Pretendard-Medium.otf \
+            https://raw.githubusercontent.com/orioncactus/pretendard/main/packages/pretendard/dist/public/static/Pretendard-Medium.otf
+          curl -fL --retry 3 \
+            -o assets/fonts/pretendard/Pretendard-SemiBold.otf \
+            https://raw.githubusercontent.com/orioncactus/pretendard/main/packages/pretendard/dist/public/static/Pretendard-SemiBold.otf
+          curl -fL --retry 3 \
+            -o assets/fonts/pretendard/LICENSE \
+            https://raw.githubusercontent.com/orioncactus/pretendard/main/LICENSE
+
+          curl -fL --retry 3 \
+            -o assets/fonts/noto-sans/NotoSans-Regular.ttf \
+            https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf
+          curl -fL --retry 3 \
+            -o assets/fonts/noto-sans/LICENSE \
+            https://raw.githubusercontent.com/notofonts/noto-fonts/main/LICENSE
+
+          test -s assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Bold.ttf
+          test -s assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-ExtraBold.ttf
+          test -s assets/fonts/pretendard/Pretendard-Medium.otf
+          test -s assets/fonts/pretendard/Pretendard-SemiBold.otf
+          test -s assets/fonts/noto-sans/NotoSans-Regular.ttf
+
+          file assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Bold.ttf
+          file assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-ExtraBold.ttf
+          file assets/fonts/pretendard/Pretendard-Medium.otf
+          file assets/fonts/pretendard/Pretendard-SemiBold.otf
+          file assets/fonts/noto-sans/NotoSans-Regular.ttf
+
+      - name: Commit font assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/fonts
+          if git diff --cached --quiet; then
+            echo 'Font assets already up to date.'
+            exit 0
+          fi
+          git commit -m 'Add card font assets'
+          git push
