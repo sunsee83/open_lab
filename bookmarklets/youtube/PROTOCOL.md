@@ -1,69 +1,127 @@
-# 유튜브다운로드 실행 인터페이스
+# 유튜브다운로드 실행 프로토콜
 
-현재 구조에서는 `ui.html`이 실제 코어를 포함하므로 별도의 복잡한 UI 메시지 버스를 기본 경로로 사용하지 않습니다.
+현재 구조는 YouTube 상위 페이지의 고정 로더와 Apps Script HTML Service의 `ui.html` 사이를 제한된 `postMessage` 프로토콜로 연결합니다.
 
-## 1. bookmarklet.js가 제공하는 값
-
-`ui.html`은 YouTube 페이지가 만든 Blob URL을 `iframe.src`로 열어 실행하며 부모 YouTube 페이지에서 다음 값을 사용합니다.
-
-```js
-parent.__YTDL_TOKEN
-parent.__YTDL_WEBAPP_URL
-parent.__YTDL_CALL(action,payload)
-parent.__YTDL_CLOSE()
-```
-
-### 의미
+## 1. 실행 채널
 
 ```text
-__YTDL_TOKEN
-→ 현재 북마클릿 실행 식별값
-
-__YTDL_WEBAPP_URL
-→ 유튜브다운로드앱_v1 공용 /exec 주소
-
-__YTDL_CALL
-→ 숨은 iframe POST 브리지를 통한 Apps Script action 호출
-
-__YTDL_CLOSE
-→ UI와 브리지 전체 종료
+YouTube 페이지
+├─ 숨은 bridge iframe
+│  └─ init / request POST
+└─ 화면 UI iframe
+   └─ mode=ui POST → Apps Script ui.html
 ```
 
-## 2. ui.html → Apps Script action
+UI iframe은 Apps Script의 cross-origin sandbox에서 실행됩니다.
+
+## 2. 일반 Apps Script 요청
+
+북마클릿 내부 `C(action,payload)`가 다음 순서로 처리합니다.
 
 ```text
-create-storage
-get-state
-connect-file
-list-sheets
-create-sheet
-list-categories
-add-category
-check-duplicate
-save-record
+init
+→ bridgeNonce 확보
+→ mode=request POST
+→ YT_GAS_RESPONSE
+→ token + requestId 확인
 ```
 
-`get-ui`는 ui.html이 실행되기 전 `bookmarklet.js`가 호출합니다.
+bridgeNonce가 만료되면 한 번 재초기화합니다.
 
-## 3. 초기화
+## 3. UI 시작
 
 ```text
 bookmarklet.js
-→ get-ui
-→ ui.html로 Blob URL 생성
-→ iframe.src = Blob URL
+→ ping
+→ 화면 iframe 생성
+→ mode=ui POST
+→ Transport.gs가 ui.html + 호스트 shim 응답
+→ UI: YTDL_UI_READY
+→ 호스트: YTDL_HOST_INIT
 → ui.html start()
-→ create-storage
-→ get-state
-→ list-sheets
-→ list-categories
-→ check-duplicate
-→ 본 화면 표시
 ```
 
-최초 미승인 계정에서 `get-ui` 응답이 없으면 로더가 공용 `/exec` 승인 페이지로 이동할지 확인합니다. 승인 후 YouTube로 돌아와 다시 실행하며, 승인 이후의 모든 action은 기존 숨은 iframe POST 브리지를 사용합니다.
+`YTDL_HOST_INIT`에는 현재 영상의 URL/메타데이터와 YouTube 내부 요청에 필요한 최소 컨텍스트만 전달합니다.
 
-## 4. 사용자 저장 입력
+## 4. UI → 호스트 요청
+
+```js
+{
+  type:'YTDL_HOST_REQUEST',
+  token:'현재 실행 token',
+  id:'요청 ID',
+  action:'gas|fetch|pick-file|pick-dir|dir-file|write-text|write-media|open|close',
+  payload:{}
+}
+```
+
+응답:
+
+```js
+{
+  type:'YTDL_HOST_RESPONSE',
+  token:'현재 실행 token',
+  id:'요청 ID',
+  ok:true,
+  data:{}
+}
+```
+
+실패 시 `ok:false`와 오류 메시지를 반환합니다.
+
+## 5. 호스트 action 경계
+
+### gas
+
+허용된 Apps Script action을 기존 숨은 POST 브리지로 전달합니다.
+
+### fetch
+
+HTTPS YouTube 도메인 요청만 허용합니다.
+
+```text
+www.youtube.com
+youtube.com
+m.youtube.com
+music.youtube.com
+```
+
+UI의 player/caption/comment 요청은 이 프록시를 사용합니다.
+
+### write-media
+
+HTTPS `googlevideo.com` 계열 미디어 URL만 허용합니다. 실제 URL은 저장 동작 중에만 호스트로 전달합니다.
+
+### 파일 action
+
+```text
+pick-file
+pick-dir
+dir-file
+write-text
+write-media
+```
+
+실제 `FileSystemFileHandle`과 `FileSystemDirectoryHandle`은 YouTube 상위 페이지 메모리에만 둡니다. UI에는 임시 handle ID만 반환합니다.
+
+## 6. ui.html 내부 호환 객체
+
+Transport가 넣는 shim은 기존 UI 코어가 계속 같은 인터페이스를 사용하도록 가상 parent를 제공합니다.
+
+```text
+parent.document
+parent.location
+parent.fetch
+parent.ytcfg.get()
+parent.__YTDL_CALL()
+parent.__YTDL_WEBAPP_URL
+parent.__YTDL_TOKEN
+parent.__YTDL_CLOSE()
+```
+
+따라서 YouTube 추출·Sheets·UI 기능 코드는 `ui.html`에 유지하고 고정 로더에는 넣지 않습니다.
+
+## 7. 사용자 저장 입력
 
 ```js
 {
@@ -80,45 +138,68 @@ bookmarklet.js
 }
 ```
 
-영상/음성 `id`는 실제 URL이 아니라 현재 실행 메모리의 후보 ID입니다.
+중복 업데이트에서는 이번 실행에서 사용자가 직접 바꾼 관리정보만 `management`에 넣습니다. 사용자가 직접 비운 항목만 `clearManagement`에 넣고, 건드리지 않은 항목은 전달하지 않아 기존값을 보존합니다.
 
-중복 업데이트에서는 사용자가 이번 실행에서 바꾼 관리정보만 `management`에 넣습니다. 사용자가 값을 직접 비운 항목만 `clearManagement`에 넣고, 건드리지 않은 항목은 두 곳 모두에서 제외해 기존값을 보존합니다.
-
-## 5. 로컬 저장
-
-UI의 `저장` 클릭 핸들러가 직접 File System Access API를 호출합니다.
-
-```text
-한 종류 → showSaveFilePicker
-복수 종류 → showDirectoryPicker
-```
-
-이 구조는 사용자 활성화를 비동기 메시지 사이에서 잃지 않기 위한 것입니다.
-
-## 6. Sheets 저장
+## 8. Sheets 저장
 
 ```text
 데이터 + Drive
 → ui.html collect()
-→ __YTDL_CALL('save-record', payload)
+→ host gas
+→ 숨은 POST bridge
+→ save-record
 → Code.gs
 → SpreadsheetApp
 ```
 
 중복이면 UI 내부 `dup` 상태를 갱신하고 업데이트/새 기록 선택 영역을 표시합니다.
 
-Drive 미디어는 Google 버튼을 렌더링한 시점에 저장 완료로 처리하지 않습니다. UI는 `데이터 저장 완료`, `Drive 버튼 준비됨`, `일부 데이터 미수집`, `실패`를 각각 구분해 표시합니다.
+## 9. 로컬 저장
 
-## 7. 종료
+사용자가 UI에서 저장을 누르면 UI의 파일 선택 프록시가 상위 YouTube 페이지에서 File System Access API를 실행합니다.
+
+```text
+한 종류
+→ pick-file
+
+복수 종류
+→ pick-dir
+→ dir-file
+```
+
+그 뒤 텍스트는 `write-text`, 영상/음성은 `write-media`로 기록합니다.
+
+## 10. Drive 미디어
+
+Google Save to Drive 버튼만 렌더링된 시점은 저장 완료가 아닙니다.
+
+UI는 다음 상태를 구분합니다.
+
+```text
+데이터 저장 완료
+Drive 버튼 준비됨
+일부 데이터 미수집
+저장 실패
+```
+
+## 11. 보안 검증
+
+- YouTube origin은 Code.gs 허용 목록과 일치해야 함
+- Apps Script 클라이언트 origin은 HTTPS `script.google.com` 또는 `*-script.googleusercontent.com` 계열만 허용
+- 모든 메시지는 실행 token 확인
+- 최초 UI 준비 메시지 이후 sender window와 origin을 현재 UI 채널로 고정
+- 임의 외부 fetch 금지
+- 임의 외부 미디어 URL 기록 금지
+
+## 12. 종료
 
 ```text
 닫기
-→ parent.__YTDL_CLOSE()
-→ Blob URL UI 제거
-→ Blob URL 해제
-→ POST 브리지 iframe 제거
-→ 진행 중 요청은 늦은 응답 무시
-→ 요청 listener는 응답 또는 timeout 시 정리
+→ 화면 UI iframe 제거
+→ 숨은 bridge iframe 제거
+→ message listener 제거
+→ 파일/폴더 handle Map 폐기
+→ 늦은 응답 무시
 ```
 
-이전 실행이 닫힌 뒤 늦게 도착한 응답은 새 UI를 만들거나 오류 알림을 표시하지 않습니다. POST 응답은 숨은 브리지 iframe의 `contentWindow`, 실행 token, requestId가 모두 일치할 때만 처리합니다.
+미디어 URL, 파일 핸들, 인증정보를 영구 저장하지 않습니다.
