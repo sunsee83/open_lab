@@ -44,7 +44,27 @@ const MANAGEMENT_COLUMNS_ = Object.freeze({
   commentSummary: '댓글 반응 요약', timestampSummary: '타임스탬프 핵심'
 });
 
-function doGet() {
+function doGet(e) {
+  const p = e && e.parameter ? e.parameter : {};
+  if (String(p.mode || '') === 'bridge') {
+    const origin = allowedOrigin_(p.origin);
+    const token = sessionToken_(p.token);
+    const requestId = bridgeRequestId_(p.requestId);
+    if (!origin || !token || !requestId) {
+      return HtmlService.createHtmlOutput(bridgePageErrorHtml_('연결 정보가 올바르지 않습니다.'))
+        .setTitle('유튜브다운로드 - Google 연결')
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    }
+    try {
+      return HtmlService.createHtmlOutput(bridgeTopHtml_(origin, token))
+        .setTitle('유튜브다운로드 - Google 연결')
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    } catch (err) {
+      return HtmlService.createHtmlOutput(bridgePageErrorHtml_('유튜브다운로드 연결 페이지를 만들지 못했습니다.'))
+        .setTitle('유튜브다운로드 - Google 연결')
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    }
+  }
   return HtmlService.createHtmlOutput(authReadyHtml_()).setTitle('유튜브다운로드 - Google 승인');
 }
 
@@ -463,7 +483,7 @@ function applyPresentation_(sheet, rowNumber, record, videoId, isNew) {
 function setLink_(range, text, url) {
   const label = safe_(text);
   if (!label) { range.setValue(''); return; }
-  try { range.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(String(label)).setLinkUrl(url).build()); }
+  try { range.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(String(label)).setLinkUrl(url).build());
   catch (e) { range.setValue(label); }
 }
 
