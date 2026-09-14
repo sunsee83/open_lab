@@ -1,7 +1,7 @@
 /* 유튜브다운로드 - Apps Script / SpreadsheetApp */
 
 const APP_ = Object.freeze({
-  VERSION: '0.4.2',
+  VERSION: '0.4.3',
   STATE_KEY: 'ytCollector.state.v2',
   MAX_REQUEST_CHARS: 1000000,
   MAX_STATE_CHARS: 9000,
@@ -16,12 +16,6 @@ const APP_ = Object.freeze({
   MAX_CELL_CHARS: 49000,
   PURPOSES: Object.freeze(['공부', '자료조사', '아이디어', '보관']),
   STATUSES: Object.freeze(['미분석', '분석중', '완료', '보류']),
-  ORIGINS: Object.freeze([
-    'https://www.youtube.com',
-    'https://m.youtube.com',
-    'https://youtube.com',
-    'https://music.youtube.com'
-  ]),
   HEADERS: Object.freeze([
     '썸네일', '제목', '채널명', '카테고리', '활용 목적', '중요도', '상태', '내 태그', '메모',
     '업로드일', '영상 길이', '조회수', '좋아요', '영상 언어', '태그 / 해시태그', '설명', '대본', '댓글',
@@ -44,29 +38,10 @@ const MANAGEMENT_COLUMNS_ = Object.freeze({
   commentSummary: '댓글 반응 요약', timestampSummary: '타임스탬프 핵심'
 });
 
-function doGet(e) {
-  const p = e && e.parameter ? e.parameter : {};
-  if (String(p.mode || '') === 'bridge') {
-    const origin = allowedOrigin_(p.origin);
-    const token = sessionToken_(p.token);
-    const requestId = bridgeRequestId_(p.requestId);
-    if (!origin || !token || !requestId) {
-      return HtmlService.createHtmlOutput(bridgePageErrorHtml_('연결 정보가 올바르지 않습니다.'))
-        .setTitle('유튜브다운로드 - Google 연결')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-    }
-    try {
-      return HtmlService.createHtmlOutput(bridgeTopHtml_(origin, token))
-        .setTitle('유튜브다운로드 - Google 연결')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-    } catch (err) {
-      return HtmlService.createHtmlOutput(bridgePageErrorHtml_('유튜브다운로드 연결 페이지를 만들지 못했습니다.'))
-        .setTitle('유튜브다운로드 - Google 연결')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-    }
-  }
-  return HtmlService.createHtmlOutput(authReadyHtml_()).setTitle('유튜브다운로드 - Google 승인');
-}
+const HEADER_INDEX_ = Object.freeze(APP_.HEADERS.reduce(function (map, header, index) {
+  map[header] = index;
+  return map;
+}, {}));
 
 function dispatch(request) {
   try {
@@ -75,6 +50,7 @@ function dispatch(request) {
     switch (request.action) {
       case 'ping': return ok_({ version: APP_.VERSION, limits: limits_() });
       case 'get-state': return ok_(publicState_());
+      case 'create-storage': return ok_(bridgeCreateStorage_(payload));
       case 'connect-file': return ok_(connectFile_(payload));
       case 'unlink-file': return ok_(unlinkFile_(payload));
       case 'list-sheets': return ok_(listSheets_(payload));
@@ -201,7 +177,7 @@ function saveRecord_(p) {
   const record = plain_(p.record) ? p.record : {};
   const management = plain_(p.management) ? p.management : {};
   const clearManagement = Array.isArray(p.clearManagement) ? p.clearManagement.map(String).filter(function (key, i, all) {
-    return Object.prototype.hasOwnProperty.call(MANAGEMENT_COLUMNS_, key) && all.indexOf(key) === i;
+    return hasOwn_(MANAGEMENT_COLUMNS_, key) && all.indexOf(key) === i;
   }) : [];
   const videoId = videoId_(p.videoId || record.videoId);
   const mode = p.duplicateMode == null ? '' : String(p.duplicateMode);
@@ -255,13 +231,13 @@ function duplicateLinks_(ss, sheet, rows) {
 function buildRow_(base, videoId, record, management, clearManagement, isNew, changed, truncatedFields) {
   const row = base.slice(0, APP_.HEADERS.length);
   while (row.length < APP_.HEADERS.length) row.push('');
-  const ix = indexes_();
+  const ix = HEADER_INDEX_;
   if (isNew) {
     assignRowValue_(row, ix['영상 ID'], videoId, changed);
     assignRowValue_(row, ix['영상 URL'], 'https://www.youtube.com/watch?v=' + videoId, changed);
   }
   Object.keys(RECORD_COLUMNS_).forEach(function (key) {
-    if (!Object.prototype.hasOwnProperty.call(record, key)) return;
+    if (!hasOwn_(record, key)) return;
     const value = record[key];
     if (value == null) return;
     assignRowValue_(row, ix[RECORD_COLUMNS_[key]], serializeRecord_(key, value, truncatedFields), changed);
@@ -269,16 +245,16 @@ function buildRow_(base, videoId, record, management, clearManagement, isNew, ch
   Object.keys(MANAGEMENT_COLUMNS_).forEach(function (key) {
     const header = MANAGEMENT_COLUMNS_[key];
     if (clearManagement.indexOf(key) >= 0) { assignRowValue_(row, ix[header], '', changed); return; }
-    if (!Object.prototype.hasOwnProperty.call(management, key)) return;
+    if (!hasOwn_(management, key)) return;
     const value = management[key];
     if (value === '' || value == null) return;
     assignRowValue_(row, ix[header], managementValue_(key, value, truncatedFields), changed);
   });
   const now = new Date().toISOString();
-  const hasContentChange = isNew || Object.keys(changed || {}).length > 0 || Object.prototype.hasOwnProperty.call(record, 'thumbnail');
+  const hasContentChange = isNew || Object.keys(changed || {}).length > 0 || hasOwn_(record, 'thumbnail');
   if (isNew || !row[ix['수집일시']]) assignRowValue_(row, ix['수집일시'], now, changed);
   if (hasContentChange) assignRowValue_(row, ix['수정일시'], now, changed);
-  return row.map(safe_);
+  return row;
 }
 
 function assignRowValue_(row, index, value, changed) {
@@ -309,7 +285,7 @@ function serializeRecord_(key, value, truncatedFields) {
   else if (key === 'transcript') out = plain_(value) && typeof value.text === 'string' ? value.text : json_(value);
   else if (key === 'comments' || key === 'rawCaptions' || key === 'rawMetadata') out = json_(value);
   noteTruncation_(out, RECORD_COLUMNS_[key], truncatedFields);
-  return safe_(out);
+  return out;
 }
 
 function managementValue_(key, value, truncatedFields) {
@@ -322,7 +298,7 @@ function managementValue_(key, value, truncatedFields) {
   else if (Array.isArray(value)) out = value.map(String).join('\n');
   else if (plain_(value)) out = json_(value);
   noteTruncation_(out, MANAGEMENT_COLUMNS_[key], truncatedFields);
-  return safe_(out);
+  return out;
 }
 
 function noteTruncation_(value, label, truncatedFields) {
@@ -333,33 +309,44 @@ function noteTruncation_(value, label, truncatedFields) {
 
 function ensureGuide_(ss) {
   let sheet = ss.getSheetByName(APP_.GUIDE_NAME);
-  if (sheet) {
-    const a1 = String(sheet.getRange('A1').getDisplayValue() || '').trim();
-    if (a1 && a1 !== APP_.GUIDE_TITLE && a1 !== 'YouTube 수집도구 안내') fail_('GUIDE_CONFLICT', '기존 안내 탭을 보호하기 위해 연결을 중단했습니다.');
-  } else {
-    try { sheet = ss.insertSheet(APP_.GUIDE_NAME, 0); }
+  let created = false;
+  if (!sheet) {
+    try { sheet = ss.insertSheet(APP_.GUIDE_NAME, 0); created = true; }
     catch (e) { fail_('FILE_NOT_WRITABLE', '안내 시트를 만들 수 없습니다.'); }
+  } else {
+    const title = String(sheet.getRange('A1').getDisplayValue() || '').trim();
+    if (title && title !== APP_.GUIDE_TITLE && title !== 'YouTube 수집도구 안내') {
+      fail_('GUIDE_CONFLICT', '기존 안내 탭을 보호하기 위해 연결을 중단했습니다.');
+    }
   }
-  const rows = [
-    [APP_.GUIDE_TITLE], [''],
-    ['저장 경로'], ['YouTube → 유튜브다운로드 → Apps Script → 이 파일 → 선택한 데이터 시트'], [''],
-    ['데이터 구조'], ['• 가로 = 항목, 세로 = 영상 / 한 영상 = 한 행'], [''],
-    ['제한'], ['• 안내 1개 + 데이터 시트 최대 10개'], ['• 시트당 최대 2,000개 / 1,800개부터 새 시트 권장'], ['• 2,000개부터 신규 추가 중지, 기존 기록 수정 가능'], [''],
-    ['기본 규칙'], ['• 영상 ID로 중복 확인'], ['• 수집 실패 항목과 사용자 관리값은 기존값 보존'], ['• 수집일 유지 / 수정일 자동 갱신'], ['• 도구는 파일·시트·행을 자동 삭제하지 않음'],
-    ['도구 버전: ' + APP_.VERSION]
-  ];
-  const clearRows = Math.max(rows.length, Math.min(sheet.getMaxRows(), 40));
-  sheet.getRange(1, 1, clearRows, 1).clearContent();
-  sheet.getRange(1, 1, rows.length, 1).setValues(rows).setWrap(true).setVerticalAlignment('top');
-  ['A1', 'A3', 'A6', 'A9', 'A14'].forEach(function (a1) { sheet.getRange(a1).setFontWeight('bold'); });
-  sheet.getRange('A1').setFontSize(16);
-  sheet.setColumnWidth(1, 700);
-  sheet.setFrozenRows(1);
-  sheet.setHiddenGridlines(true);
+
+  const versionLabel = '도구 버전: ' + APP_.VERSION;
+  const currentTitle = String(sheet.getRange('A1').getDisplayValue() || '').trim();
+  const currentVersion = String(sheet.getRange('A19').getDisplayValue() || '').trim();
+  if (created || currentTitle !== APP_.GUIDE_TITLE || currentVersion !== versionLabel) {
+    const rows = [
+      [APP_.GUIDE_TITLE], [''],
+      ['저장 경로'], ['YouTube → 유튜브다운로드 → Apps Script → 이 파일 → 선택한 데이터 시트'], [''],
+      ['데이터 구조'], ['• 가로 = 항목, 세로 = 영상 / 한 영상 = 한 행'], [''],
+      ['제한'], ['• 안내 1개 + 데이터 시트 최대 10개'], ['• 시트당 최대 2,000개 / 1,800개부터 새 시트 권장'], ['• 2,000개부터 신규 추가 중지, 기존 기록 수정 가능'], [''],
+      ['기본 규칙'], ['• 영상 ID로 중복 확인'], ['• 수집 실패 항목과 사용자 관리값은 기존값 보존'], ['• 수집일 유지 / 수정일 자동 갱신'], ['• 도구는 파일·시트·행을 자동 삭제하지 않음'],
+      [versionLabel]
+    ];
+    const clearRows = Math.max(rows.length, Math.min(sheet.getMaxRows(), 40));
+    sheet.getRange(1, 1, clearRows, 1).clearContent();
+    sheet.getRange(1, 1, rows.length, 1).setValues(rows).setWrap(true).setVerticalAlignment('top');
+    ['A1', 'A3', 'A6', 'A9', 'A14'].forEach(function (a1) { sheet.getRange(a1).setFontWeight('bold'); });
+    sheet.getRange('A1').setFontSize(16);
+    sheet.setColumnWidth(1, 700);
+    sheet.setFrozenRows(1);
+    sheet.setHiddenGridlines(true);
+  }
   ensureGuideCategoryMeta_(sheet);
   try { sheet.hideColumns(3, 2); } catch (e) {}
-  try { ss.setActiveSheet(sheet); ss.moveActiveSheet(1); }
-  catch (e) { fail_('FILE_NOT_WRITABLE', '안내 시트를 첫 번째로 이동할 수 없습니다.'); }
+  if (created || sheet.getIndex() !== 1) {
+    try { ss.setActiveSheet(sheet); ss.moveActiveSheet(1); }
+    catch (e) { fail_('FILE_NOT_WRITABLE', '안내 시트를 첫 번째로 이동할 수 없습니다.'); }
+  }
   return sheet;
 }
 
@@ -429,7 +416,7 @@ function initDataSheet_(sheet) {
   sheet.getRange(2, 5, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(APP_.PURPOSES.slice(), true).setAllowInvalid(false).build());
   sheet.getRange(2, 6, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['1','2','3','4','5'], true).setAllowInvalid(false).build());
   sheet.getRange(2, 7, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(APP_.STATUSES.slice(), true).setAllowInvalid(false).build());
-  sheet.getRange(2, indexes_()['AI 전송'] + 1, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().setAllowInvalid(false).build());
+  sheet.getRange(2, HEADER_INDEX_['AI 전송'] + 1, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().setAllowInvalid(false).build());
 }
 
 function ensureRows_(sheet, rowNumber) {
@@ -465,16 +452,16 @@ function assertSchema_(sheet, actual) {
 }
 
 function applyPresentation_(sheet, rowNumber, record, videoId, isNew) {
-  const ix = indexes_();
-  if (isNew || Object.prototype.hasOwnProperty.call(record, 'thumbnail')) {
+  const ix = HEADER_INDEX_;
+  if (isNew || hasOwn_(record, 'thumbnail')) {
     sheet.getRange(rowNumber, ix['썸네일'] + 1).setFormula('=IMAGE("https://i.ytimg.com/vi/' + videoId + '/mqdefault.jpg",4,68,120)');
     sheet.setRowHeight(rowNumber, 68);
   }
-  if (isNew || Object.prototype.hasOwnProperty.call(record, 'title')) setLink_(sheet.getRange(rowNumber, ix['제목'] + 1), record.title || '', 'https://www.youtube.com/watch?v=' + videoId);
-  if (isNew || Object.prototype.hasOwnProperty.call(record, 'channel') || Object.prototype.hasOwnProperty.call(record, 'channelId')) {
+  if (isNew || hasOwn_(record, 'title')) setLink_(sheet.getRange(rowNumber, ix['제목'] + 1), record.title || '', 'https://www.youtube.com/watch?v=' + videoId);
+  if (isNew || hasOwn_(record, 'channel') || hasOwn_(record, 'channelId')) {
     const channelRange = sheet.getRange(rowNumber, ix['채널명'] + 1);
-    const channel = Object.prototype.hasOwnProperty.call(record, 'channel') ? record.channel : channelRange.getDisplayValue();
-    const channelId = channelIdSoft_(Object.prototype.hasOwnProperty.call(record, 'channelId') ? record.channelId : sheet.getRange(rowNumber, ix['채널 ID'] + 1).getDisplayValue());
+    const channel = hasOwn_(record, 'channel') ? record.channel : channelRange.getDisplayValue();
+    const channelId = channelIdSoft_(hasOwn_(record, 'channelId') ? record.channelId : sheet.getRange(rowNumber, ix['채널 ID'] + 1).getDisplayValue());
     if (channel && channelId) setLink_(channelRange, channel, 'https://www.youtube.com/channel/' + channelId);
   }
   setLink_(sheet.getRange(rowNumber, ix['영상 URL'] + 1), 'https://www.youtube.com/watch?v=' + videoId, 'https://www.youtube.com/watch?v=' + videoId);
@@ -488,7 +475,7 @@ function setLink_(range, text, url) {
 }
 
 function videoIdRange_(sheet) {
-  const col = indexes_()['영상 ID'] + 1;
+  const col = HEADER_INDEX_['영상 ID'] + 1;
   if (sheet.getMaxRows() < 2 || sheet.getMaxColumns() < col) return null;
   return sheet.getRange(2, col, sheet.getMaxRows() - 1, 1);
 }
@@ -557,7 +544,6 @@ function channelIdSoft_(value) { const id = String(value || '').trim(); return /
 function dataSheetName_(value) { const s = requiredText_(value, '시트 이름', 100); if (s === APP_.GUIDE_NAME || /[\\\/\?\*\[\]:]/.test(s)) fail_('INVALID_SHEET_NAME', '사용할 수 없는 시트 이름입니다.'); return s; }
 
 function categoryGroup_(state, fileId, sheetName) { return state.categoryGroups.find(function (g) { return g.fileId === fileId && g.sheetName === sheetName; }) || null; }
-function ensureCategoryGroup_(fileId, sheetName) { const ss = openLinked_(fileId); getDataSheet_(ss, dataSheetName_(sheetName)); ensureGuide_(ss); }
 function refreshFileName_(fileId, name) { const state = loadState_(); const f = state.files.find(function (x) { return x.id === fileId; }); if (f && f.name !== name) { f.name = trim_(name, 120); saveState_(state); } }
 
 function publicState_() {
@@ -612,10 +598,8 @@ function listText_(v) { return Array.isArray(v) ? v.map(String).join(', ') : Str
 function json_(v) { if (typeof v === 'string') return v; try { return JSON.stringify(v); } catch (e) { return ''; } }
 function trim_(v, max) { const s = String(v == null ? '' : v).trim(); return s.length > max ? s.slice(0, max) : s; }
 function plain_(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
-function indexes_() { const x = {}; APP_.HEADERS.forEach(function (h, i) { x[h] = i; }); return x; }
+function hasOwn_(object, key) { return Object.prototype.hasOwnProperty.call(object, key); }
 function locked_(fn) { const lock = LockService.getScriptLock(); if (!lock.tryLock(10000)) fail_('BUSY', '다른 작업이 진행 중입니다.'); try { return fn(); } finally { lock.releaseLock(); } }
-function allowedOrigin_(value) { const s = String(value || '').trim(); return APP_.ORIGINS.indexOf(s) >= 0 ? s : ''; }
-function sessionToken_(value) { const s = String(value || '').trim(); return /^[A-Za-z0-9_-]{16,128}$/.test(s) ? s : ''; }
 function ok_(data) { return { ok: true, data: data }; }
 function fail_(code, message) { const e = new Error(message); e.ytCode = code; throw e; }
 
@@ -633,16 +617,4 @@ function errorResult_(err) {
     ROW_MISMATCH: '선택한 행과 영상이 일치하지 않습니다.', CATEGORY_LIMIT: '카테고리는 최대 30개입니다.', STATE_TOO_LARGE: '연결 설정이 너무 많습니다.', BUSY: '다른 작업이 진행 중입니다.'
   };
   return { ok: false, error: { code: code, message: messages[code] || '요청을 처리하지 못했습니다.' } };
-}
-
-function authReadyHtml_() {
-  return '<!doctype html><html lang="ko"><head>' +
-    '<meta charset="utf-8">' +
-    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<meta name="referrer" content="no-referrer">' +
-    '<title>유튜브다운로드 - Google 승인</title>' +
-    '<style>body{margin:0;background:#111;color:#eee;font:15px/1.5 system-ui;padding:24px}.box{max-width:520px;margin:auto;padding:18px;border:1px solid #333;border-radius:14px;background:#181818}h1{font-size:18px;margin-top:0}</style>' +
-    '</head><body>' +
-    '<div class="box"><h1>Google 승인 완료</h1><div>이 페이지를 닫고 YouTube로 돌아가 유튜브다운로드를 다시 실행해 주세요.</div></div>' +
-    '</body></html>';
 }

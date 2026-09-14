@@ -1,86 +1,53 @@
-/* 유튜브다운로드 - top-level Apps Script bridge */
+/* 유튜브다운로드 - Apps Script bridge */
 
-function doPost(e) {
+const BRIDGE_ORIGINS_ = Object.freeze([
+  'https://www.youtube.com',
+  'https://m.youtube.com',
+  'https://youtube.com',
+  'https://music.youtube.com'
+]);
+
+function doGet(e) {
   const p = e && e.parameter ? e.parameter : {};
-  const origin = allowedOrigin_(p.origin);
-  const token = sessionToken_(p.token);
-  const requestId = bridgeRequestId_(p.requestId);
-  const mode = String(p.mode || '');
-
-  if (mode === 'bridge') {
-    if (!origin || !token || !requestId) {
-      return HtmlService.createHtmlOutput(bridgePageErrorHtml_('연결 정보가 올바르지 않습니다.'))
-        .setTitle('유튜브다운로드 - Google 연결')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-    }
-    try {
-      return HtmlService.createHtmlOutput(bridgeTopHtml_(origin, token))
-        .setTitle('유튜브다운로드 - Google 연결')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-    } catch (err) {
-      return HtmlService.createHtmlOutput(bridgePageErrorHtml_('유튜브다운로드 연결 페이지를 만들지 못했습니다.'))
-        .setTitle('유튜브다운로드 - Google 연결')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-    }
+  if (String(p.mode || '') !== 'bridge') {
+    return HtmlService.createHtmlOutput(infoPageHtml_(
+      'Google 승인 완료',
+      '이 페이지를 닫고 YouTube로 돌아가 유튜브다운로드를 다시 실행해 주세요.'
+    )).setTitle('유튜브다운로드 - Google 승인');
   }
 
-  return HtmlService.createHtmlOutput(bridgePageErrorHtml_('지원하지 않는 연결 요청입니다. YouTube에서 유튜브다운로드를 다시 실행해 주세요.'))
+  const origin = allowedOrigin_(p.origin);
+  const token = sessionToken_(p.token);
+  if (!origin || !token) return bridgeOutput_(infoPageHtml_('유튜브다운로드', '연결 정보가 올바르지 않습니다.'));
+
+  try {
+    return bridgeOutput_(bridgeTopHtml_(origin, token));
+  } catch (err) {
+    return bridgeOutput_(infoPageHtml_('유튜브다운로드', '유튜브다운로드 연결 페이지를 만들지 못했습니다.'));
+  }
+}
+
+function bridgeOutput_(html) {
+  return HtmlService.createHtmlOutput(html)
     .setTitle('유튜브다운로드 - Google 연결')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function bridgeTopHtml_(origin, token) {
   const ui = HtmlService.createHtmlOutputFromFile('ui').getContent();
-  const o = jsLiteral_(origin);
-  const t = jsLiteral_(token);
-  const h = jsLiteral_(ui);
   return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<style>body{margin:0;background:#111;color:#eee;font:15px/1.5 system-ui;padding:24px}.box{max-width:520px;margin:auto;padding:18px;border:1px solid #333;border-radius:14px;background:#181818}.sub{margin-top:8px;color:#aaa;font-size:13px}</style>' +
     '</head><body><div class="box"><b>유튜브다운로드 · Google 연결</b><div id="s" class="sub">YouTube와 연결 중…</div></div>' +
-    '<script>(function(){"use strict";const O=' + o + ',T=' + t + ',H=' + h + ',S=document.getElementById("s"),OP=(function(){try{return window.top.opener}catch(e){return null}})();' +
+    '<script>(function(){"use strict";const O=' + jsLiteral_(origin) + ',T=' + jsLiteral_(token) + ',H=' + jsLiteral_(ui) + ',S=document.getElementById("s"),OP=(function(){try{return window.top.opener}catch(e){return null}})();' +
     'function post(m){try{if(OP&&!OP.closed)OP.postMessage(m,O)}catch(e){}}' +
     'window.addEventListener("message",function(e){if(e.source!==OP||e.origin!==O)return;const m=e.data;if(!m||m.token!==T)return;' +
     'if(m.type==="YTDL_BRIDGE_CLOSE"){try{window.top.close()}catch(x){}return}' +
     'if(m.type!=="YTDL_BRIDGE_REQUEST"||typeof m.id!=="string")return;' +
-    'google.script.run.withSuccessHandler(function(r){if(r&&r.ok)post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:true,data:r.data});else post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:false,error:r&&r.error||{message:"Google 요청 실패"}})}).withFailureHandler(function(x){post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:false,error:{message:x&&x.message||"Google 요청 실패"}})}).bridgeTopDispatch(m.request);' +
+    'google.script.run.withSuccessHandler(function(r){if(r&&r.ok)post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:true,data:r.data});else post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:false,error:r&&r.error||{message:"Google 요청 실패"}})}).withFailureHandler(function(x){post({type:"YTDL_BRIDGE_RESPONSE",token:T,id:m.id,ok:false,error:{message:x&&x.message||"Google 요청 실패"}})}).dispatch(m.request);' +
     '});' +
     'if(!OP){S.textContent="YouTube 연결 창을 찾지 못했습니다. 이 탭을 닫고 YouTube에서 다시 실행해 주세요.";return}' +
     'post({type:"YTDL_BRIDGE_READY",token:T,html:H});S.textContent="연결 완료 · YouTube 화면으로 돌아가세요.";try{OP.focus()}catch(e){}' +
     '})();<\/script></body></html>';
-}
-
-function bridgeTopDispatch(request) {
-  try {
-    const raw = JSON.stringify(request || {});
-    if (!raw || raw.length > APP_.MAX_REQUEST_CHARS) {
-      return bridgeError_('REQUEST_TOO_LARGE', '데이터가 너무 큽니다.');
-    }
-    return bridgeDispatch_(request);
-  } catch (err) {
-    return bridgeError_('INVALID_REQUEST', '요청 형식이 올바르지 않습니다.');
-  }
-}
-
-function bridgeDispatch_(request) {
-  if (request && request.action === 'get-ui') {
-    try {
-      return ok_({ html: HtmlService.createHtmlOutputFromFile('ui').getContent() });
-    } catch (err) {
-      return bridgeError_('UI_MISSING', 'Apps Script에 ui.html 파일이 없습니다.');
-    }
-  }
-
-  if (request && request.action === 'create-storage') {
-    try {
-      const payload = plain_(request.payload) ? request.payload : {};
-      return ok_(bridgeCreateStorage_(payload));
-    } catch (err) {
-      if (err && err.ytCode) return errorResult_(err);
-      return bridgeError_('FILE_CREATE_FAILED', 'Google Sheets 파일을 자동으로 만들 수 없습니다.');
-    }
-  }
-
-  return dispatch(request);
 }
 
 function bridgeCreateStorage_(p) {
@@ -106,11 +73,10 @@ function bridgeCreateStorage_(p) {
     first.setName(sheetName);
     initDataSheet_(first);
   } catch (err) {
-    return bridgeCreateStorageFail_();
+    fail_('FILE_NOT_WRITABLE', 'Google Sheets 파일을 자동으로 만들 수 없습니다.');
   }
 
   const connected = connectFile_({ sheetUrl: ss.getUrl() });
-  ensureCategoryGroup_(connected.file.id, sheetName);
   const categories = addCategory_({
     fileId: connected.file.id,
     sheetName: sheetName,
@@ -127,32 +93,29 @@ function bridgeCreateStorage_(p) {
   };
 }
 
-function bridgeCreateStorageFail_() {
-  const e = new Error('Google Sheets 파일을 자동으로 만들 수 없습니다.');
-  e.ytCode = 'FILE_NOT_WRITABLE';
-  throw e;
+function allowedOrigin_(value) {
+  const origin = String(value || '').trim();
+  return BRIDGE_ORIGINS_.indexOf(origin) >= 0 ? origin : '';
 }
 
-function bridgeRequestId_(value) {
-  const s = String(value || '').trim();
-  return /^[A-Za-z0-9_-]{8,128}$/.test(s) ? s : '';
+function sessionToken_(value) {
+  const token = String(value || '').trim();
+  return /^[A-Za-z0-9_-]{16,128}$/.test(token) ? token : '';
 }
 
-function bridgeError_(code, message) {
-  return {
-    ok: false,
-    error: {
-      code: String(code || 'BRIDGE_FAILURE'),
-      message: String(message || '연결 요청을 처리하지 못했습니다.')
-    }
-  };
-}
-
-function bridgePageErrorHtml_(message) {
+function infoPageHtml_(heading, message) {
   return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<style>body{margin:0;background:#111;color:#eee;font:15px/1.5 system-ui;padding:24px}.box{max-width:520px;margin:auto;padding:18px;border:1px solid #333;border-radius:14px;background:#181818}</style>' +
-    '</head><body><div class="box"><b>유튜브다운로드</b><div style="margin-top:8px">' +
-    String(message || '연결하지 못했습니다.') + '</div></div></body></html>';
+    '<style>body{margin:0;background:#111;color:#eee;font:15px/1.5 system-ui;padding:24px}.box{max-width:520px;margin:auto;padding:18px;border:1px solid #333;border-radius:14px;background:#181818}h1{font-size:18px;margin:0 0 8px}</style>' +
+    '</head><body><div class="box"><h1>' + htmlEscape_(heading) + '</h1><div>' + htmlEscape_(message) + '</div></div></body></html>';
+}
+
+function htmlEscape_(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function jsLiteral_(value) {
