@@ -1,21 +1,19 @@
 # YouTube 영상·음성 로컬 저장
 
-이 문서는 통합 UI의 `영상 / 음성` 선택을 Android 모바일 로컬 저장 경로에 연결하는 **현재 규격**입니다.
+이 문서는 통합 UI의 `영상 / 음성` 선택을 Android 모바일 로컬 저장 경로에 연결하는 현재 규격입니다.
 
-YouTube 전용 스트림 추출 코드는 모바일 북마클릿 코어에 유지합니다.
+YouTube 스트림 추출과 후보 선택 로직은 `ui.html`에 유지합니다. 실제 File System Access API와 GoogleVideo 파일 쓰기는 상위 YouTube 페이지의 고정 호스트 로더가 수행합니다.
 
-## 1. UI 초기화
-
-북마클릿 코어는 UI에 다음만 전달합니다.
+## 1. 후보 생성
 
 ```text
-영상 정보
-실제 사용 가능한 영상 화질 목록
-실제 사용 가능한 음성 음질 목록
-각 후보를 가리키는 임시 ID
+ui.html player()
+→ streamingData 분석
+→ 영상/음성 후보 Map 생성
+→ UI에는 품질 + 임시 후보 ID 표시
 ```
 
-실제 미디어 URL은 초기화 메시지에 포함하지 않습니다.
+실제 미디어 URL은 현재 UI 실행 메모리에만 둡니다.
 
 ## 2. UI 선택
 
@@ -24,29 +22,51 @@ YouTube 전용 스트림 추출 코드는 모바일 북마클릿 코어에 유�
 ```text
 영상 선택 → 화질
 음성 선택 → 음질
-저장 위치 로컬 → save-local
+저장 위치 → 로컬
 ```
 
-## 3. 임시 후보 ID
-
-코어는 UI가 반환한 임시 ID를 현재 실행의 후보표에서 실제 스트림으로 해석합니다.
+## 3. 단일 파일 저장
 
 ```text
-video.id → 영상+음성 통합 MP4 후보
-audio.id → 음성 전용 후보
+사용자 [저장]
+→ ui.html의 showSaveFilePicker 호환 함수
+→ YTDL_HOST_REQUEST / pick-file
+→ 상위 YouTube 페이지에서 실제 showSaveFilePicker()
+→ 실제 FileSystemFileHandle은 호스트 Map에 보관
+→ UI에는 임시 handle ID만 반환
 ```
 
-후보표와 실제 URL은 현재 북마클릿 실행 메모리에만 유지합니다.
+영상/음성 기록:
 
-## 4. 영상 저장
+```text
+선택 미디어 URL
+→ write-media
+→ URL이 googlevideo.com 계열인지 확인
+→ YouTube 페이지 fetch
+→ Range: bytes=0-
+→ response.body.pipeTo(await handle.createWritable())
+```
+
+## 4. 복수 파일 저장
+
+영상, 음성, 데이터를 둘 이상 함께 로컬 저장하면 폴더 선택을 사용합니다.
+
+```text
+pick-dir
+→ 상위 페이지 showDirectoryPicker()
+→ 실제 DirectoryHandle은 호스트 Map에 보관
+→ 항목별 dir-file
+→ 임시 FileHandle ID 반환
+→ write-media / write-text
+```
+
+## 5. 영상 저장
 
 ```text
 영상 제목 기반 .mp4 파일명 생성
 → 금지 문자 정리
-→ showSaveFilePicker()
-→ 선택 미디어 URL fetch
-→ 필요 시 Range: bytes=0-
-→ response.body.pipeTo(await handle.createWritable())
+→ 파일/폴더 선택
+→ 선택한 progressive MP4 URL 기록
 ```
 
 검증된 범위:
@@ -57,54 +77,47 @@ audio.id → 음성 전용 후보
 - 영상+음성 통합 MP4
 - 현재 직접 저장 검증 화질 360p
 
-## 5. 음성 저장
+고화질 분리 스트림 mux는 이 경로에 포함하지 않습니다.
+
+## 6. 음성 저장
 
 ```text
-영상 제목 기반 음성 파일명 생성
-→ showSaveFilePicker()
-→ 선택 음성 전용 URL fetch
-→ 응답 스트림을 파일에 기록
+영상 제목 기반 .m4a 파일명 생성
+→ 파일/폴더 선택
+→ 선택 audio/mp4 URL 기록
 ```
 
 현재 검증 경로는 `audio/mp4` 계열입니다.
 
-## 6. 복수 선택
+## 7. 사용자 활성화
 
-영상과 음성을 함께 선택하면 각각 독립 작업으로 처리합니다.
+Apps Script UI는 cross-origin iframe이지만 사용자가 UI 안의 `[저장]`을 직접 누른 동작을 기준으로 즉시 host file action을 요청합니다. 파일 선택 동작 사이에 데이터 수집 같은 장시간 작업을 먼저 넣지 않습니다.
 
-한 항목의 취소/실패가 다른 항목의 성공 결과를 취소하지 않습니다.
+## 8. 상태 처리
 
-## 7. 상태 메시지
-
-```text
-영상 저장 준비 중…
-영상 저장 완료
-영상 저장 실패
-영상 저장 취소됨
-
-음성 저장 준비 중…
-음성 저장 완료
-음성 저장 실패
-음성 저장 취소됨
-```
-
-## 8. 저장 경계
-
-공개 UI/문서에 둘 수 있는 것:
+각 항목은 독립적으로 결과를 기록합니다.
 
 ```text
-임시 ID 규격
-일반 파일 저장 흐름
-상태 처리
+저장 완료
+저장 취소
+저장 실패
 ```
 
-실행 중 외부에 저장하지 않는 것:
+한 항목의 실패가 다른 항목의 성공 결과를 취소하지 않습니다.
+
+## 9. 저장 경계
+
+실행 중 영구 저장하지 않는 값:
 
 ```text
 실제 미디어 URL
+실제 FileSystemFileHandle
+실제 FileSystemDirectoryHandle
 계정/세션 정보
 인증 쿠키
 OAuth token
 ```
 
-YouTube 추출 규칙은 `CORE_SPEC.md`, UI 메시지는 `PROTOCOL.md`를 따릅니다.
+실제 파일/폴더 핸들은 호스트 Map에만 존재하고 실행 종료 시 폐기합니다.
+
+YouTube 추출 규칙은 `CORE_SPEC.md`, 메시지 형식은 `PROTOCOL.md`를 따릅니다.
