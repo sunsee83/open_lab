@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d11">
+  <title>제품 3D 스캔 스튜디오</title>
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+  <main class="app">
+    <header class="app-bar">
+      <h1>제품 3D 스캔 스튜디오</h1>
+      <span id="modeLabel">촬영</span>
+    </header>
+
+    <section class="stage" aria-label="제품 미리보기">
+      <video id="cameraView" playsinline autoplay muted></video>
+      <img id="imageView" alt="">
+      <canvas id="renderView"></canvas>
+
+      <div id="emptyState" class="empty-state">
+        <strong>제품을 촬영하거나 불러오세요</strong>
+      </div>
+
+      <div class="stage-actions">
+        <button id="openCameraButton" class="icon-button" type="button">카메라</button>
+        <label class="icon-button" for="imageInput">가져오기</label>
+        <input id="imageInput" type="file" accept="image/*" hidden>
+      </div>
+    </section>
+
+    <section class="control-sheet">
+      <div class="panel is-active" data-panel="capture">
+        <div class="action-row">
+          <button id="captureButton" class="primary-button" type="button" disabled>촬영</button>
+          <button id="scanButton" class="secondary-button" type="button" disabled>스캔 시작</button>
+        </div>
+      </div>
+
+      <div class="panel" data-panel="camera">
+        <div class="segmented" role="group" aria-label="카메라 구도">
+          <button type="button" data-view="front" class="is-selected">정면</button>
+          <button type="button" data-view="three">3/4</button>
+          <button type="button" data-view="high">하이</button>
+          <button type="button" data-view="low">로우</button>
+        </div>
+
+        <label class="slider-row">
+          <span>렌즈</span>
+          <input id="fovInput" type="range" min="20" max="75" value="38">
+          <output id="fovOutput">38°</output>
+        </label>
+
+        <label class="slider-row">
+          <span>크기</span>
+          <input id="scaleInput" type="range" min="60" max="150" value="100">
+          <output id="scaleOutput">100%</output>
+        </label>
+      </div>
+
+      <div class="panel" data-panel="light">
+        <div id="lightPad" class="light-pad" aria-label="조명 위치">
+          <div id="lightHandle" class="light-handle">☀</div>
+        </div>
+
+        <label class="slider-row">
+          <span>광량</span>
+          <input id="lightPowerInput" type="range" min="0" max="200" value="100">
+          <output id="lightPowerOutput">100%</output>
+        </label>
+
+        <label class="slider-row">
+          <span>색온도</span>
+          <input id="lightTempInput" type="range" min="2800" max="9000" step="100" value="5200">
+          <output id="lightTempOutput">5200K</output>
+        </label>
+      </div>
+
+      <div class="panel" data-panel="export">
+        <div class="action-row">
+          <button id="savePngButton" class="primary-button" type="button" disabled>PNG</button>
+          <button id="saveGlbButton" class="secondary-button" type="button" disabled>GLB</button>
+        </div>
+      </div>
+    </section>
+
+    <nav class="bottom-nav" aria-label="작업 메뉴">
+      <button type="button" class="is-active" data-tab="capture">촬영</button>
+      <button type="button" data-tab="camera">구도</button>
+      <button type="button" data-tab="light">조명</button>
+      <button type="button" data-tab="export">저장</button>
+    </nav>
+  </main>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
