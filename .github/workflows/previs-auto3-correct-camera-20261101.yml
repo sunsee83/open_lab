@@ -42,16 +42,15 @@ jobs:
           bpy.ops.wm.open_mainfile(filepath=str(path))
           scene=bpy.context.scene
           aspect=960/540
-          for cam in bpy.data.cameras:
-              cam.ortho_scale*=aspect
-              if cam.animation_data and cam.animation_data.action:
-                  for curve in cam.animation_data.action.fcurves:
-                      if curve.data_path=='ortho_scale':
-                          for kp in curve.keyframe_points:
-                              kp.co.y*=aspect
-                              kp.handle_left.y*=aspect
-                              kp.handle_right.y*=aspect
-                  cam.animation_data.action.update_tag()
+          # Blender 4/5 both support scene evaluation and keyframe_insert.
+          # Do not use Action.fcurves: layered actions no longer expose it.
+          for f in range(1,49):
+              scene.frame_set(f)
+              for cam in bpy.data.cameras:
+                  current_scale=float(cam.ortho_scale)
+                  cam.ortho_scale=current_scale*aspect
+                  cam.keyframe_insert(data_path='ortho_scale',frame=f)
+          scene.frame_set(1)
           obj=bpy.data.objects.get('stage_floor')
           if obj:obj.location.z=-.47
           for x in bpy.data.objects:
