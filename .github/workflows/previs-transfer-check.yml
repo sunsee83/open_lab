@@ -1,0 +1,50 @@
+name: Temporary video transfer proof
+on:
+  push:
+    branches:
+      - temp/previs-video-transfer-20261031
+    paths:
+      - .github/workflows/previs-transfer-check.yml
+permissions:
+  contents: write
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Receive ChatGPT video and verify its bytes
+        env:
+          SOURCE_ARCHIVE_URL: "https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-22a8-8206-9691-b0d1892ba103/raw?se=2026-10-31T11%3A43%3A50Z&sp=r&sv=2026-02-06&sr=b&scid=7e531fa2-4288-57a4-b272-9caaf862d359&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-31T02%3A03%3A55Z&ske=2026-11-01T02%3A03%3A55Z&sks=b&skv=2026-02-06&sig=bmQ2sqN56YNMWd4DXLFCeNbYU8/PMT1pJMB3DAGah7A%3D"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/video-transfer tmp/previs-transfer
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 90 --silent --show-error "$SOURCE_ARCHIVE_URL" -o /tmp/video-transfer/source.tar.gz
+          tar -xzf /tmp/video-transfer/source.tar.gz -C /tmp/video-transfer
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,subprocess
+          paths=list(Path('/tmp/video-transfer').rglob('videoplayback.mp4'))
+          assert len(paths)==1,f'unexpected input files: {len(paths)}'
+          p=paths[0]
+          sha=hashlib.sha256(p.read_bytes()).hexdigest()
+          assert sha == '657fa29e71ea66988b87cf4f373f4db0e10ea043d284e7a2b0adc96e49eb4af6', f'video checksum differs: {sha}'
+          meta=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration,size','-of','json',str(p)]))
+          sample=Path('tmp/previs-transfer/원본_3초_검증.mp4')
+          subprocess.run(['ffmpeg','-hide_banner','-nostdin','-y','-loglevel','error','-ss','12','-i',str(p),'-t','3','-vf','fps=6,scale=180:-2','-an','-c:v','libx264','-preset','veryfast','-crf','29','-movflags','+faststart',str(sample)],check=True)
+          result={'status':'success','original_sha256':sha,'original_size_bytes':p.stat().st_size,'duration_seconds':float(meta['format']['duration']),'sample_name':sample.name,'sample_size_bytes':sample.stat().st_size,'sample_sha256':hashlib.sha256(sample.read_bytes()).hexdigest(),'method':'temporary plugin archive -> GitHub Actions -> sample MP4','github_minutes_cap':8,'input_was_committed':False}
+          Path('tmp/previs-transfer/result.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+          print('VIDEO_UPLOAD_PROOF_OK',json.dumps(result))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/previs-transfer/result.json tmp/previs-transfer/원본_3초_검증.mp4
+          git commit -m 'test: video transfer and three-second preview verified'
+          git push origin HEAD:temp/previs-video-transfer-20261031
+      - uses: actions/upload-artifact@v4
+        with:
+          name: temporary-video-transfer-test
+          path: |
+            tmp/previs-transfer/result.json
+            tmp/previs-transfer/원본_3초_검증.mp4
+          retention-days: 1
