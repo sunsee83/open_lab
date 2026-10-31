@@ -1,4 +1,4 @@
-name: Solo original video -> pose-guided previs (one person)
+name: Full body solo dance -> pose-guided previs (corrected sample)
 on:
   push:
     branches: [temp/previs-solo-20261101]
@@ -21,10 +21,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg >/dev/null
           mkdir -p input output
-          curl --fail --location --retry 2 --connect-timeout 20 --max-time 180 --silent --show-error 'https://www.pexels.com/download/video/7551194/' -o /tmp/pexels_sample.mp4
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 180 --silent --show-error 'https://videos.pexels.com/video-files/6003772/6003772-hd_1920_1080_30fps.mp4' -o /tmp/pexels_sample.mp4
           test $(stat -c %s /tmp/pexels_sample.mp4) -gt 100000
           ffprobe -v error -show_entries format=duration,size -of json /tmp/pexels_sample.mp4
-          ffmpeg -hide_banner -loglevel error -nostdin -y -ss 0.5 -i /tmp/pexels_sample.mp4 -t 6 -vf 'fps=12,scale=432:768:force_original_aspect_ratio=decrease,pad=432:768:(ow-iw)/2:(oh-ih)/2' -an -c:v libx264 -preset fast -crf 24 -pix_fmt yuv420p input/solo_original_6s.mp4
+          ffmpeg -hide_banner -loglevel error -nostdin -y -ss 0.5 -i /tmp/pexels_sample.mp4 -t 6 -vf 'fps=12,scale=960:540:force_original_aspect_ratio=decrease,pad=960:540:(ow-iw)/2:(oh-ih)/2' -an -c:v libx264 -preset fast -crf 24 -pix_fmt yuv420p input/solo_original_6s.mp4
           ffprobe -v error -show_entries format=duration,size -of json input/solo_original_6s.mp4
       - name: Download free pose and person segmentation models
         shell: bash
