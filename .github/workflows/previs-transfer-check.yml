@@ -19,6 +19,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/video-transfer tmp/previs-transfer
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
           curl --fail --location --retry 2 --connect-timeout 15 --max-time 90 --silent --show-error "$SOURCE_ARCHIVE_URL" -o /tmp/video-transfer/source.tar.gz
           tar -xzf /tmp/video-transfer/source.tar.gz -C /tmp/video-transfer
           python3 - <<'PY'
