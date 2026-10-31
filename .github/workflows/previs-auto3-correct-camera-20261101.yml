@@ -24,7 +24,6 @@ jobs:
           test -s input/preview_comparison_raw.mp4
           cp input/validation.json output/validation.json
           cp input/auto_previs_spec.json output/auto_previs_spec.json
-          ffprobe -v error -show_entries format=duration,size -of json input/preview_comparison_raw.mp4
       - name: Set up Blender for fixing the verified framing error
         shell: bash
         run: |
