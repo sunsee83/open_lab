@@ -1,0 +1,135 @@
+name: Third previs method - AI person segmentation test
+on:
+  push:
+    branches:
+      - 'temp/previs-third-seg-20261101'
+    paths:
+      - '.github/workflows/previs-third-seg.yml'
+permissions:
+  contents: read
+jobs:
+  person-segmentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python + video tools
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ffmpeg and CPU AI dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg >/dev/null
+          python -m pip install --disable-pip-version-check -q --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --disable-pip-version-check -q --no-cache-dir 'ultralytics>=8.3,<9'
+      - name: Download original from ChatGPT upload plugin
+        env:
+          SOURCE_ARCHIVE_URL: "https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-8d38-8206-96f4-b95fa0371818/raw?se=2026-10-31T16%3A06%3A19Z&sp=r&sv=2026-02-06&sr=b&scid=dd8da1ce-11f4-5205-8be7-3bdf71697869&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-31T03%3A33%3A27Z&ske=2026-11-01T03%3A33%3A27Z&sks=b&skv=2026-02-06&sig=3KSfjG4suj/pM8H%2BDaOYrbzE9cSkHOLMzGsNCfE2KXM%3D"
+          EXPECTED_SHA256: 29be68df9e430ddfd4a8f57a4bfd5e03f6d09062e0350e00b214aa56416e3fc3
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/third output
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 120 "$SOURCE_ARCHIVE_URL" -o /tmp/third/input.tar.gz
+          tar -xzf /tmp/third/input.tar.gz -C /tmp/third
+          find /tmp/third -name 'input_12p3_15p7.mp4' -type f -exec cp {} /tmp/third/input_12p3_15p7.mp4 \;
+          echo "$EXPECTED_SHA256  /tmp/third/input_12p3_15p7.mp4" | sha256sum -c -
+      - name: Run real AI instance segmentation on concert video
+        env:
+          EXPECTED_SHA256: 29be68df9e430ddfd4a8f57a4bfd5e03f6d09062e0350e00b214aa56416e3fc3
+          YOLO_CONFIG_DIR: /tmp/yolo-config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/third/segment.py <<'PY'
+          import cv2, json, os, time, hashlib, math
+          import numpy as np
+          from pathlib import Path
+          from ultralytics import YOLO
+          
+          src=Path('/tmp/third/input_12p3_15p7.mp4')
+          out=Path('output');out.mkdir(exist_ok=True)
+          assert hashlib.sha256(src.read_bytes()).hexdigest()==os.environ['EXPECTED_SHA256'], "input sha256 mismatch"
+          torchstart=time.monotonic()
+          model=YOLO('yolo11n-seg.pt')
+          weight=Path('yolo11n-seg.pt')
+          assert weight.exists() and weight.stat().st_size>1_000_000, 'weights not downloaded'
+          print('MODEL_READY',weight.stat().st_size,round(time.monotonic()-torchstart,2),flush=True)
+          cap=cv2.VideoCapture(str(src))
+          fps=cap.get(cv2.CAP_PROP_FPS)
+          w=int(cap.get(cv2.CAP_PROP_FRAME_WIDTH));h=int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+          frames=int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+          assert fps>0 and w>0 and h>0 and frames>0
+          sample_fps=6
+          step=max(1,round(fps/sample_fps))
+          writer=cv2.VideoWriter('output/사람분리_원본대조_raw.mp4',cv2.VideoWriter_fourcc(*'mp4v'),fps/step,(w*2,h))
+          colors=[(247,101,168),(39,221,245),(89,211,84),(252,173,39),(216,134,255),(83,126,244),(139,216,184),(250,102,61),(219,188,68),(182,127,95)]
+          counts=[];confs=[];selected=[]
+          start=time.monotonic()
+          for n in range(frames):
+              ok,fr=cap.read()
+              if not ok:break
+              if n%step:continue
+              try:
+                pred=model.track(fr, persist=True, conf=0.18, iou=0.6, classes=[0], imgsz=640, tracker='bytetrack.yaml', verbose=False)[0]
+                trackerror=None
+              except Exception as exc:
+                pred=model.predict(fr, conf=0.18, iou=0.6, classes=[0], imgsz=640, verbose=False)[0]
+                trackerror=repr(exc)
+              view=np.full_like(fr,(83,83,83))
+              n_masks=0
+              if pred.masks is not None and pred.boxes is not None:
+                ms=pred.masks.data.cpu().numpy()
+                box=pred.boxes
+                ids=box.id.int().cpu().tolist() if box.id is not None else None
+                cls=box.cls.int().cpu().tolist()
+                confidence=box.conf.float().cpu().tolist()
+                for j,msk in enumerate(ms):
+                  if cls[j]!=0:continue
+                  if msk.shape!=(h,w): msk=cv2.resize(msk,(w,h),interpolation=cv2.INTER_NEAREST)
+                  area=msk>0.4
+                  if area.sum()<80:continue
+                  tid=ids[j] if ids is not None else j
+                  color=colors[tid%len(colors)]
+                  view[area]=color
+                  bx=box.xyxy[j].int().cpu().tolist()
+                  cv2.putText(view,f'P{tid}',(max(0,bx[0]),max(30,bx[1])),cv2.FONT_HERSHEY_SIMPLEX,0.55,(255,255,255),1,cv2.LINE_AA)
+                  n_masks+=1
+                  confs.append(float(confidence[j]))
+              counts.append(n_masks)
+              cv2.putText(view,f'AI segmented: {n_masks}',(8,h-15),cv2.FONT_HERSHEY_SIMPLEX,.56,(255,255,255),2,cv2.LINE_AA)
+              writer.write(np.hstack((fr,view)))
+              if len(counts) in (1,7,13,19):
+                selected.append(np.hstack((fr,view)))
+          writer.release();cap.release()
+          assert len(counts)>=4, f'no frames to process: {len(counts)}'
+          if selected:
+            cv2.imwrite('output/인물분리_검증이미지.jpg',cv2.resize(np.vstack(selected),(600,round(len(selected)*h*600/(w*2)))))
+          result={
+            'status':'completed','model':'Ultralytics YOLO11n-seg COCO pre-trained','weights_bytes':weight.stat().st_size,
+            'weights_sha256':hashlib.sha256(weight.read_bytes()).hexdigest(),
+            'input_size_bytes':src.stat().st_size,'input_sha256':os.environ['EXPECTED_SHA256'],
+            'input_resolution':[w,h],'input_fps':fps,'input_frames':frames,
+            'output_sample_frames':len(counts),'detected_person_instances_by_frame':counts,
+            'mean_detected_persons':float(np.mean(counts)),'frames_with_any_person':sum(k>0 for k in counts),
+            'confidence_mean':float(np.mean(confs)) if confs else None,
+            'processing_wall_seconds':round(time.monotonic()-start,2),
+            'method':'AI instance segmentation (not 3D and not SAM2)'}
+          Path('output/실제검증_결과.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('PERSON_SEGMENTATION_TEST',json.dumps(result,ensure_ascii=False),flush=True)
+          assert result['frames_with_any_person']>=1,'no person detected, test incomplete'
+          
+          PY
+          python -u /tmp/third/segment.py
+          ffmpeg -hide_banner -loglevel error -y -i output/사람분리_원본대조_raw.mp4 -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart output/사람분리_원본대조.mp4
+          rm -f output/사람분리_원본대조_raw.mp4
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 output/사람분리_원본대조.mp4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: third-previs-ai-segmentation-test
+          path: output/
+          retention-days: 1
