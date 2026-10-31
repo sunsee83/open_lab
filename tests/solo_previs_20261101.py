@@ -5,7 +5,7 @@ src=Path("input/solo_original_6s.mp4"); out=Path("output"); out.mkdir(exist_ok=T
 assert src.exists() and src.stat().st_size>100000
 cap=cv2.VideoCapture(str(src))
 fps=cap.get(cv2.CAP_PROP_FPS);nframes=int(cap.get(cv2.CAP_PROP_FRAME_COUNT));assert fps>10 and nframes>40
-W,H=432,768
+W,H=960,540
 step=max(1,round(fps/8))
 frames=[]
 for i in range(nframes):
@@ -79,7 +79,7 @@ for k,(fr,p,s) in enumerate(zip(frames,ps,ss)):
  measure.append({"frame":k,"pose_detected":pose_detect,"interpolated":carry,"visible_arm_joints_6":int(np.sum(good[[5,6,7,8,9,10]])),"visible_leg_joints_6":int(np.sum(good[[11,12,13,14,15,16]])),"mask_pixels":maskarea})
 writer.release()
 if rows:cv2.imwrite("output/02_시간순_비교.jpg",np.vstack(rows))
-summary={"source_url":"https://www.pexels.com/video/female-contemporary-dancer-7551194/","source_video_sha256":hashlib.sha256(src.read_bytes()).hexdigest(),"input_duration_sec":len(frames)*step/fps,"frames_tested":len(frames),"pose_detection_frames":sum(x["pose_detected"] for x in measure),"mask_detection_frames":sum(x["mask_pixels"]>250 for x in measure),"avg_arm_joints_of_6":round(float(np.mean([x["visible_arm_joints_6"] for x in measure])),2),"avg_leg_joints_of_6":round(float(np.mean([x["visible_leg_joints_6"] for x in measure])),2),"full_6_leg_joints_frames":sum(x["visible_leg_joints_6"]==6 for x in measure),"model":"YOLO11s-pose + YOLO11s-seg pretrained","meaning":"2D pose-driven mannequin, not a 3D motion capture","processing_seconds":round(time.monotonic()-start,2)}
+summary={"source_url":"https://www.pexels.com/video/a-woman-dancing-at-home-6003772/","source_video_sha256":hashlib.sha256(src.read_bytes()).hexdigest(),"input_duration_sec":len(frames)*step/fps,"frames_tested":len(frames),"pose_detection_frames":sum(x["pose_detected"] for x in measure),"mask_detection_frames":sum(x["mask_pixels"]>250 for x in measure),"avg_arm_joints_of_6":round(float(np.mean([x["visible_arm_joints_6"] for x in measure])),2),"avg_leg_joints_of_6":round(float(np.mean([x["visible_leg_joints_6"] for x in measure])),2),"full_6_leg_joints_frames":sum(x["visible_leg_joints_6"]==6 for x in measure),"model":"YOLO11s-pose + YOLO11s-seg pretrained","meaning":"2D pose-driven mannequin, not a 3D motion capture","processing_seconds":round(time.monotonic()-start,2)}
 Path("output/03_검증수치.json").write_text(json.dumps({"summary":summary,"frames":measure},ensure_ascii=False,indent=2),encoding="utf-8")
 print("RESULT",json.dumps(summary,ensure_ascii=False),flush=True)
 assert summary["pose_detection_frames"]>=.6*len(frames)
