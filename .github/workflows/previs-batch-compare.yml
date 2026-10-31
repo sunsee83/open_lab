@@ -1,0 +1,58 @@
+name: Third previs method - one-pass batch comparison
+on:
+  push:
+    branches:
+      - 'temp/previs-batch-method3-20261101'
+    paths:
+      - '.github/workflows/previs-batch-compare.yml'
+permissions:
+  contents: read
+jobs:
+  compare-4-approaches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get same source video and verify
+        env:
+          SOURCE_ARCHIVE_URL: "https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-8d38-8206-96f4-b95fa0371818/raw?se=2026-10-31T16%3A17%3A19Z&sp=r&sv=2026-02-06&sr=b&scid=d6abf9d7-95f0-578c-963c-6ae039d2d234&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-31T02%3A08%3A10Z&ske=2026-11-01T02%3A08%3A10Z&sks=b&skv=2026-02-06&sig=g1bZuJmet2xtql/lYM5xfX/2VT0gd07tMkaaDh6DGL0%3D"
+          EXPECTED_SHA256: 29be68df9e430ddfd4a8f57a4bfd5e03f6d09062e0350e00b214aa56416e3fc3
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/previs
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 100 "$SOURCE_ARCHIVE_URL" -o /tmp/previs/input.tar.gz
+          tar -xzf /tmp/previs/input.tar.gz -C /tmp/previs
+          find /tmp/previs -name input_12p3_15p7.mp4 -type f -print -quit | grep -q .
+          find /tmp/previs -name input_12p3_15p7.mp4 -type f -exec cp {} /tmp/previs/input_12p3_15p7.mp4 \;
+          echo "$EXPECTED_SHA256  /tmp/previs/input_12p3_15p7.mp4" | sha256sum -c -
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU models and FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg >/dev/null
+          python -m pip install -q --disable-pip-version-check --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -q --disable-pip-version-check --no-cache-dir 'ultralytics>=8.3,<9'
+      - name: One-pass comparison of mask, body joints, fusion and SAM2
+        env:
+          EXPECTED_SHA256: 29be68df9e430ddfd4a8f57a4bfd5e03f6d09062e0350e00b214aa56416e3fc3
+          YOLO_CONFIG_DIR: /tmp/yolo-configuration
+        run: |
+          set -euo pipefail
+          python -u tests/previz_batch_20261101.py
+          for f in output/*.mp4; do
+            ffmpeg -hide_banner -nostdin -loglevel error -y -i "$f" -c:v libx264 -preset fast -crf 24 -pix_fmt yuv420p -movflags +faststart "$f.h264.mp4"
+            mv "$f.h264.mp4" "$f"
+          done
+          ls -lh output
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: third-previs-one-pass-comparison
+          path: output/
+          if-no-files-found: warn
+          retention-days: 1
