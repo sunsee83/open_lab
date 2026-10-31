@@ -1,0 +1,68 @@
+name: 3D previs - MediaPipe world pose to real Blender meshes
+on:
+  push:
+    branches: [temp/previs-actual3d-20261101]
+    paths: [.github/workflows/actual-3d-previs-check.yml]
+permissions:
+  contents: read
+jobs:
+  reconstruct-3d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Receive 6-second solo video and 3D scripts
+        env:
+          SOURCE_ARCHIVE_URL: "https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-be98-8206-90bd-49059e6560fb/raw?se=2026-10-31T16%3A50%3A18Z&sp=r&sv=2026-02-06&sr=b&scid=6bde4d30-653a-540c-b685-f41f84b002a9&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-31T01%3A44%3A18Z&ske=2026-11-01T01%3A44%3A18Z&sks=b&skv=2026-02-06&sig=SOVdEeW7YpAQm2JxCbJW2eS%2B8SVLadzoY7ZmRZ/cheY%3D"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/transfer input output
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 120 --silent --show-error "$SOURCE_ARCHIVE_URL" -o /tmp/transfer/source.tar.gz
+          tar -xzf /tmp/transfer/source.tar.gz -C /tmp/transfer
+          cp /tmp/transfer/skills/actions-video-transfer/assets/solo_original_6s.mp4 input/solo_before_scale.mp4
+          cp /tmp/transfer/skills/actions-video-transfer/assets/3D_관절추출.py ./extract_world_pose.py
+          cp /tmp/transfer/skills/actions-video-transfer/assets/3D_마네킹렌더.py ./render_mannequin.py
+          python -m py_compile extract_world_pose.py render_mannequin.py
+          echo "ARCHIVE_AND_SCRIPTS_READY"
+      - name: Install Blender and MediaPipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg blender >/dev/null
+          blender --version | head -3
+          python -m pip install -q --disable-pip-version-check --no-cache-dir mediapipe==0.10.21
+          python -c "import mediapipe as mp; print('MEDIAPIPE_READY',mp.__version__)"
+      - name: Download free pretrained 3D world landmark model and process video
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 90 --silent --show-error 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task' -o input/pose_landmarker_full.task
+          test $(stat -c %s input/pose_landmarker_full.task) -gt 1000000
+          ffmpeg -nostdin -hide_banner -loglevel error -y -i input/solo_before_scale.mp4 -vf 'fps=8,scale=640:-2' -an -c:v libx264 -preset veryfast -crf 24 -pix_fmt yuv420p input/solo_original_6s.mp4
+          python -u extract_world_pose.py
+      - name: Animate actual 3D mesh in Blender and render two angles
+        shell: bash
+        run: |
+          set -euo pipefail
+          blender -b --factory-startup -t 2 --python render_mannequin.py
+          for view in 정면 사선45도; do
+            ffmpeg -nostdin -hide_banner -loglevel error -framerate 8 -start_number 1 -i "output/render_${view}_%04d.png" -y -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p -movflags +faststart "output/3D_마네킹_${view}.mp4"
+          done
+          ffmpeg -nostdin -hide_banner -loglevel error -y -i input/solo_original_6s.mp4 -i output/3D_마네킹_정면.mp4 -i output/3D_마네킹_사선45도.mp4 -filter_complex '[0:v]scale=640:360[v0];[1:v]scale=280:360[v1];[2:v]scale=280:360[v2];[v0][v1][v2]hstack=inputs=3[out]' -map '[out]' -c:v libx264 -preset fast -crf 27 -pix_fmt yuv420p output/원본_실제3D_시점비교.mp4
+          rm -f output/render_*.png
+          ls -lh output/*.mp4 output/*.blend output/*.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: actual-3d-mannequin-proof
+          path: |
+            output/*.mp4
+            output/*.blend
+            output/*.json
+          if-no-files-found: warn
+          retention-days: 1
