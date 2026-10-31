@@ -16,7 +16,7 @@ jobs:
           python-version: '3.11'
       - name: Receive 6-second solo video and 3D scripts
         env:
-          SOURCE_ARCHIVE_URL: "https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-be98-8206-90bd-49059e6560fb/raw?se=2026-10-31T16%3A50%3A18Z&sp=r&sv=2026-02-06&sr=b&scid=6bde4d30-653a-540c-b685-f41f84b002a9&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-31T01%3A44%3A18Z&ske=2026-11-01T01%3A44%3A18Z&sks=b&skv=2026-02-06&sig=SOVdEeW7YpAQm2JxCbJW2eS%2B8SVLadzoY7ZmRZ/cheY%3D"
+          SOURCE_ARCHIVE_URL: "https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-be98-8206-90bd-49059e6560fb/raw?se=2026-10-31T16%3A55%3A00Z&sp=r&sv=2026-02-06&sr=b&scid=f009fa50-ed14-54e0-ac64-27311f4229a4&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-31T01%3A53%3A30Z&ske=2026-11-01T01%3A53%3A30Z&sks=b&skv=2026-02-06&sig=YLV%2BsvZ6Tj4PI6CuXDCHVYKInpkWrujsCsd4xHKKH4A%3D"
         shell: bash
         run: |
           set -euo pipefail
@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg blender >/dev/null
+          sudo apt-get install -y -qq ffmpeg blender libegl1 libgl1 libgl1-mesa-dri xvfb xauth >/dev/null
           blender --version | head -3
           python -m pip install -q --disable-pip-version-check --no-cache-dir mediapipe==0.10.21
           python -c "import mediapipe as mp; print('MEDIAPIPE_READY',mp.__version__)"
@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          blender -b --factory-startup -t 2 --python render_mannequin.py
+          xvfb-run -a blender -b --factory-startup -t 2 --python render_mannequin.py
           for view in 정면 사선45도; do
             ffmpeg -nostdin -hide_banner -loglevel error -framerate 8 -start_number 1 -i "output/render_${view}_%04d.png" -y -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p -movflags +faststart "output/3D_마네킹_${view}.mp4"
           done
