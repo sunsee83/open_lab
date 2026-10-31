@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq blender libegl1 libgl1 libgl1-mesa-dri xvfb xauth ffmpeg >/dev/null
+          sudo apt-get install -y -qq blender libegl1 libgl1 libgl1-mesa-dri xvfb xauth ffmpeg python3-numpy >/dev/null
           blender --version | head -1
       - name: Export Blender animation as a phone-viewable GLB
         shell: bash
@@ -48,7 +48,7 @@ jobs:
               export_lights=False,export_yup=True)
           print("MOBILE_GLB_EXPORTED",out,out.stat().st_size,flush=True)
           PY
-          xvfb-run -a blender -b -t 2 --python /tmp/export_mobile_glb.py
+          PYTHONPATH=/usr/lib/python3/dist-packages xvfb-run -a blender -b -t 2 --python /tmp/export_mobile_glb.py
           python3 - <<'PY'
           from pathlib import Path
           import struct,json
