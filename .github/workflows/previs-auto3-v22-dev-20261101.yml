@@ -1,0 +1,82 @@
+name: Automatic previs third mode v2.2 contact and clean source integration
+on:
+  push:
+    branches: [temp/previs-auto3-integrated-20261101]
+    paths: [.github/workflows/previs-auto3-v22-dev-20261101.yml]
+permissions:
+  contents: write
+jobs:
+  verify-third-mode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Receive independently developed third-mode source and test inputs
+        env:
+          TRANSFER_URL: "https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-c048-8206-af66-fabe28ad70e0/raw?se=2026-11-01T00%3A20%3A16Z&sp=r&sv=2026-02-06&sr=b&scid=5a3b55b6-97d9-5d6c-b52a-64449747cf63&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-31T23%3A32%3A54Z&ske=2026-11-01T23%3A32%3A54Z&sks=b&skv=2026-02-06&sig=fDaVr6uMZgU/SXEz882QxUWpmBJxW9waEo3uxdsekPM%3D"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p transfer work inputs out
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 110 --silent --show-error "$TRANSFER_URL" -o transfer/archive.tar.gz
+          tar -xzf transfer/archive.tar.gz -C transfer
+          for f in analyze_v2.py render_v2.py assemble_v2.py contact_v21.py contact_v22.py motion_v21.py quality_v21.py run_v21.py test_v21.py test_v22.py; do
+             cp "transfer/skills/actions-video-transfer/assets/$f" "work/$f"
+             python3 -m py_compile "work/$f"
+          done
+          cp transfer/skills/actions-video-transfer/assets/test_video.mp4 inputs/source.mp4
+          cp transfer/skills/actions-video-transfer/assets/test_pose.json inputs/pose.json
+          test $(stat -c %s inputs/source.mp4) -gt 100000
+      - name: Install OpenCV and free Blender software
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-opencv python3-numpy python3-scipy ffmpeg blender xvfb xauth libegl1 libgl1 libgl1-mesa-dri >/dev/null
+          /usr/bin/python3 -c 'import cv2,scipy,numpy; print("SCENE_DEPENDENCIES_OK")'
+          blender --version | head -1
+      - name: Run 18 positive and negative isolated regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd work
+          /usr/bin/python3 -m unittest test_v21 test_v22 -v
+      - name: Run actual source to 3D hands and clean MP4
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$(pwd)/work:/usr/lib/python3/dist-packages" xvfb-run -a /usr/bin/python3 work/run_v21.py --video inputs/source.mp4 --pose-json inputs/pose.json --fps 8 --out out
+          /usr/bin/python3 - <<'PY'
+          import json,subprocess,os
+          state=json.load(open('out/pipeline_status.json'))
+          assert state['stage']=='done' and state['status'] in ('NEEDS_REVIEW','VERIFIED') and state['output_available'],state
+          scene=json.load(open('out/scene_v2.json'))
+          assert len(scene['people'])==len(scene['cameras'])==48,scene['meta']
+          assert len(scene['shots'])==2 and len(scene['contact_events'])>=1
+          b=json.load(open('out/blender_qc.json'))
+          assert b['result']=='PASS' and b['hand_meshes_per_actor']==8 and b['projection_evaluation_samples']>=500,b
+          for file,wide_factor in [('mobile_comparison_h264.mp4',3),('previz_clean_h264.mp4',1)]:
+              p='out/'+file;assert os.path.getsize(p)>15000,file
+              md=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_entries','stream=width,height,codec_name,nb_frames','-show_entries','format=duration','-of','json',p]))
+              stream=md['streams'][0];assert stream['codec_name']=='h264' and int(stream['nb_frames'])==48 and stream['height']==360*wide_factor,(file,md)
+              assert abs(float(md['format']['duration'])-6.0)<.25,(file,md)
+          print('FULL_THIRD_MODE_V22_QC_PASS',json.dumps({'status':state['status'],'pose_samples':b['projection_evaluation_samples'],'contacts':len(scene['contact_events']),'hand_meshes_per_actor':b['hand_meshes_per_actor'],'clean_and_review_videos':True}))
+          PY
+      - name: Make finished MP4 directly accessible on Android
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create previs-auto3-v22-development-20261101 out/previz_clean_h264.mp4 out/mobile_comparison_h264.mp4 out/quality_final.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "프리비즈 3번 v2.2 손 동작·접촉·검수·깨끗한 MP4 통합시험" --notes "세 번째 제작 방식만 수정. 1·2번 불변. 실제 1인 자세 데이터와 합성 팬·줌·컷으로 실행 검증했으며 손-다리 물리 접촉 확정이나 실제 다인물 정확도는 보장하지 않음." --latest=false --prerelease
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: previs-auto3-v22-QC-artifacts
+          path: |
+            out/*.mp4
+            out/*.json
+            out/*.blend
+            out/*.jpg
+          retention-days: 1
+          if-no-files-found: warn
