@@ -38,6 +38,13 @@ jobs:
           set -euo pipefail
           npm install --prefix "$RUNNER_TEMP/hypit-install" @hypit/hypit@0.3.1 --no-audit --no-fund --loglevel=warn
           "$RUNNER_TEMP/hypit-install/node_modules/.bin/hypit" --version 2>&1 | tee report/version.txt
+      - name: Ensure FFmpeg and ffprobe installed
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          command -v ffprobe
+          ffprobe -version | head -n 1
       - name: Run actual Hypit media analysis commands
         run: |
           set -euo pipefail
