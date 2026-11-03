@@ -23,7 +23,8 @@ jobs:
           mkdir -p /tmp/hypitcase
           cd /tmp/hypitcase
           npm init -y >/dev/null
-          npm pkg set type=module 'hypit.project=true'
+          npm pkg set type=module
+          npm pkg set --json 'hypit.project=true'
           npm install --silent @hypit/hypit@0.3.1 @hypit/fontsource @fontsource-variable/noto-sans-kr
           ./node_modules/.bin/hypit --version
       - name: Receive original video and verify its SHA256
