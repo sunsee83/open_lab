@@ -29,7 +29,7 @@ jobs:
           ./node_modules/.bin/hypit --version
       - name: Receive original video and verify its SHA256
         env:
-          TEMP_DOWNLOAD_URL: 'https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-b748-8206-9722-dc299e9e919d/raw?se=2026-11-03T02%3A21%3A35Z&sp=r&sv=2026-02-06&sr=b&scid=e8e830d0-7411-5067-ba00-a47a1bfab9d6&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-03T00%3A43%3A04Z&ske=2026-11-04T00%3A43%3A04Z&sks=b&skv=2026-02-06&sig=YJbrYO0UF7XT6YHDfqyRv6%2BptXZEEYozUCDEJJFvLuo%3D'
+          TEMP_DOWNLOAD_URL: 'https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-b748-8206-9722-dc299e9e919d/raw?se=2026-11-03T02%3A24%3A59Z&sp=r&sv=2026-02-06&sr=b&scid=5a87f022-b803-5eb3-a89c-b09ce16b6472&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-03T00%3A26%3A02Z&ske=2026-11-04T00%3A26%3A02Z&sks=b&skv=2026-02-06&sig=VSVmPe1tsz5ukzJ/mamwo4h%2B4GetxY8UM3Bg7YCFwxk%3D'
           EXPECTED_SHA256: 'd18ccc5a23092dacdcd4fe36af2f1c2d12fe345cdcde5d94999586227e003b64'
         shell: bash
         run: |
@@ -128,9 +128,10 @@ jobs:
           hypit plan render.svrun --project "$PWD" --runtime hypit.runtime.json 2>&1 | tee /tmp/hypit-plan.log
           hypit programs prepare --runtime hypit.runtime.json --endpoint html.local 2>&1 | tee /tmp/hypit-prepare.log
           hypit build render.svrun --project "$PWD" --runtime hypit.runtime.json --follow 2>&1 | tee /tmp/hypit-build.log
-          BUILD_ID=$(grep -oE 'build_[A-Za-z0-9_-]+' /tmp/hypit-build.log | head -1 || true)
+          BUILD_ID=$(grep -oE 'bld_[A-Za-z0-9_-]+' /tmp/hypit-build.log | head -1 || true)
           echo "BUILD_ID=$BUILD_ID"
           hypit builds --project "$PWD" | tee /tmp/hypit-builds.log
+          mkdir -p output
           if [ -n "$BUILD_ID" ]; then hypit get "$BUILD_ID" --output final.video --to /tmp/hypitcase/output/hypit-final.mp4 --project "$PWD"; fi
           if [ ! -f output/hypit-final.mp4 ]; then
              echo 'EXPORT_NOT_FOUND'; hypit get --help | head -90; find .hypit -type f -name '*.mp4' -print
