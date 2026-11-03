@@ -30,6 +30,7 @@ jobs:
           tar -xzf "$INPUT" -C /tmp
           echo "$EXPECTED_VIDEO_SHA  /tmp/hypit-project/assets/reference.mp4" | sha256sum -c -
           echo "ORIGINAL_TRANSFER_VERIFIED"
+          sed -i 's/align="left"/align="start"/g' /tmp/hypit-project/*.svml
       - name: Install Hypit distribution, fonts and media tools
         run: |
           set -euo pipefail
