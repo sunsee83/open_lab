@@ -16,7 +16,7 @@ jobs:
           node-version: '22.16.0'
       - name: Download original and editable project in temporary archive
         env:
-          TRANSFER_ARCHIVE_URL: 'https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-194c-8206-a060-19405b8b9618/raw?se=2026-11-03T08%3A54%3A21Z&sp=r&sv=2026-02-06&sr=b&scid=1d30cdf1-97f0-54a0-8e9c-2686ded7d201&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-03T00%3A43%3A02Z&ske=2026-11-04T00%3A43%3A02Z&sks=b&skv=2026-02-06&sig=VjjMRvf9wccbvz8dDCOGCj5QNy78Aai%2BY9ToLxHnhPc%3D'
+          TRANSFER_ARCHIVE_URL: 'https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-194c-8206-a060-19405b8b9618/raw?se=2026-11-03T09%3A01%3A07Z&sp=r&sv=2026-02-06&sr=b&scid=93cf6499-63b7-5d9b-b8e8-ce34d97df94c&skoid=1e4bb9ed-6bb5-424a-a3aa-79f21566e722&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-03T00%3A28%3A47Z&ske=2026-11-04T00%3A28%3A47Z&sks=b&skv=2026-02-06&sig=q%2BPggNw%2BFEIh8r3UPcSKFPat6qcDE3xKfsLmc0uFbqA%3D'
           EXPECTED_ARCHIVE_SHA: '85d66292a277a80e0f88056df776d7271ec11817e1b1a4d3f07edbc433947630'
           EXPECTED_VIDEO_SHA: 'd18ccc5a23092dacdcd4fe36af2f1c2d12fe345cdcde5d94999586227e003b64'
         run: |
@@ -41,6 +41,7 @@ jobs:
           assert token in s
           s=s.replace(token,'  </visual:Track>\n  <visual:Track id="replacement-track" timeline={filmtime.timeline}>\n'+line+'\n  </visual:Track>\n  <audio:Track id="audio-mix"',1)
           s=s.replace('    <film:Track source={picture.visual}/>','    <film:Track source={picture.visual}/>\n    <film:Track source={replacement-track.visual}/>',1)
+          s=s.replace('id="cue06-text">립밤 뭐 바른거야?!','id="cue06-text">원하는 글자로 변경!',1)
           f.write_text(s)
           PYCODE
       - name: Install Hypit distribution, fonts and media tools
