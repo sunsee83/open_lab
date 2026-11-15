@@ -1,0 +1,13 @@
+{
+  "name": "vocabulary-research",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "check": "node --check scripts/collect.mjs && node --test tests/*.test.mjs",
+    "collect": "node scripts/collect.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.56.1"
+  }
+}
