@@ -1,5 +1,7 @@
 # 영어단어 조사 — GitHub Actions 초등 10개 실측
 
+> 실측 결과: [2026-11-15 조사 보고](reports/elementary-first-10-execution.md). GitHub Actions 실행기는 네이버 첫 페이지 진입에서 타임아웃이 발생했고, 별도 클라우드 브라우저에서는 10개 표제어 상세 화면에 접근했습니다. **Actions에서의 실제 조사 성공을 의미하지 않습니다.**
+
 ## 목적
 
 `moa_home/work/resource-development/program/english-word-card-generator/`의 **교육부 2022 개정 영어과 3,000개 원본** 중 초등 첫 10개 단어군만 대상으로, 네이버 영어사전의 **Oxford 전체 항목**을 브라우저에서 한 번에 조사하고 실제 소요 시간을 측정한다.
@@ -20,7 +22,7 @@
 
 1. `words-elementary-pilot.json`에서 10개를 읽는다.
 2. Playwright Chromium으로 `en.dict.naver.com`의 검색 → Oxford **All meaning** → 상세 페이지를 열고 품사별 모든 의미를 읽는다.
-3. 빈 의미·표제어 불일치·상세 페이지 미접속을 실패로 기록한다(단어당 최대 2번 시도).
+3. 빈 의미·표제어 불일치·상세 페이지 미접속을 실패로 기록한다(단어당 최대 2번 시도). 첫 단어에서 페이지 이동 타임아웃이 2회 계속되면 나머지는 `not_attempted`로 처리하여 10배의 불필요한 대기를 피한다.
 4. 작업별 시간, 수준별 의미 수, 예문 수를 집계한다.
 5. **공개 GitHub 아티팩트에는 출처 링크·발음·개수·소요 시간만 저장한다.** 사전의 전체 뜻·예문 원문은 GitHub Actions 실행기의 임시 파일에서만 생성한 뒤 업로드하지 않는다.
 

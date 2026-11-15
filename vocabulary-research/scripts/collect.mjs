@@ -81,8 +81,8 @@ async function extractVisibleEntry() {
 
 async function collectOne(entry) {
   const query = encodeURIComponent(entry.headword);
-  await page.goto(`https://en.dict.naver.com/#/search?query=${query}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
-  await page.locator('#revisionSearchPage_entry .component_keyword').first().waitFor({ state: 'visible', timeout: 30000 });
+  await page.goto(`https://en.dict.naver.com/#/search?query=${query}`, { waitUntil: 'domcontentloaded', timeout: 12000 });
+  await page.locator('#revisionSearchPage_entry .component_keyword').first().waitFor({ state: 'visible', timeout: 12000 });
 
   // Navigate to the full dictionary entry. The search-card preview contains only the beginner senses.
   const allMeaning = page.locator('#revisionSearchPage_entry a').filter({ hasText: /All meanings?\s*\(\d+\)/i });
@@ -111,19 +111,32 @@ async function collectOne(entry) {
 }
 
 try {
+  let siteUnavailable = false;
   for (const entry of input.entries) {
     const started = Date.now();
     let result;
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      try {
-        result = await collectOne(entry);
-        break;
-      } catch (error) {
-        result = {
-          status: 'failed', source: null, pronunciation: {us:null,gb:null},
-          senses: [], idioms: [], thesaurus: [], extractionLimits: [],
-          error: String(error?.message ?? error), attempts: attempt
-        };
+    if (siteUnavailable) {
+      result = {
+        status: 'not_attempted', source: null, pronunciation: {us:null,gb:null},
+        senses: [], idioms: [], thesaurus: [], extractionLimits: [],
+        error: 'First word navigation timed out twice. Further navigation skipped to prevent another long failed run.'
+      };
+    } else {
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          result = await collectOne(entry);
+          break;
+        } catch (error) {
+          result = {
+            status: 'failed', source: null, pronunciation: {us:null,gb:null},
+            senses: [], idioms: [], thesaurus: [], extractionLimits: [],
+            error: String(error?.message ?? error), attempts: attempt
+          };
+        }
+      }
+      if (raw.length === 0 && /^page\.goto: Timeout/.test(result.error ?? '')) {
+        siteUnavailable = true;
+        console.warn('NAVER homepage navigation failed twice; remaining nine words will not be attempted.');
       }
     }
     const elapsedMs = Date.now() - started;
@@ -152,6 +165,8 @@ writeFileSync('artifacts/runner-only-raw.json', rawBytes);
 const report = summarize(reportEntries, startedAt, full.finishedAt);
 report.schemaVersion = 1;
 report.pilotOnly = true;
+report.siteNavigationFailed = report.entries[0]?.status === 'failed' && report.entries.slice(1).every(x => x.status === 'not_attempted');
+report.notAttempted = report.entries.filter(x => x.status === 'not_attempted').length;
 report.rawSha256 = createHash('sha256').update(rawBytes).digest('hex');
 report.note = 'Public artifact has counts, source links and pronunciations, not copyrighted full definitions/examples.';
 writeFileSync('artifacts/public-coverage-report.json', JSON.stringify(report, null, 2) + '\n');
@@ -164,6 +179,8 @@ writeFileSync('artifacts/public-coverage-report.md', [
   `- 정상 추출: ${report.extracted}/${report.requested}`,
   `- 의미 항목: ${report.totalSenses}개`,
   `- 뜻별 예문 행: ${report.totalExamplePairs}개`,
+  `- 접속 실패 감지: ${report.siteNavigationFailed ? '예 (첫 단어 2회 타임아웃)' : '아니요'}`,
+  `- 접속 실패로 시도하지 않은 단어: ${report.notAttempted}개`,
   '',
   '| 단어 | 상태 | 의미 수 | 예문 수 | 소요(초) |',
   '|---|---|---:|---:|---:|',
