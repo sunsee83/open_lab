@@ -1,195 +1,258 @@
 import { chromium } from 'playwright';
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-import { normalizeReportEntry, summarize } from './parse-logic.mjs';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { appendFileSync } from 'node:fs';
+import { evaluateCapture, sealCapture, verifySealedCapture, sha256 } from './source-preserve.mjs';
 
 const input = JSON.parse(readFileSync(new URL('../words-elementary-pilot.json', import.meta.url), 'utf8'));
 if (input.group !== 'elementary' || input.entries.length !== 10 || new Set(input.entries.map(x => x.entryId)).size !== 10) {
-  throw new Error('Pilot input must contain ten unique official elementary groups.');
+  throw new Error('The official pilot input must contain ten unique elementary groups.');
 }
 
+// Preserve the original list and query every related spelling as its own source entry.
+const targets = input.entries.flatMap(entry => [
+  { groupId: entry.entryId, originalGroup: entry.rawEntry, headword: entry.headword, kind: 'main' },
+  ...entry.relatedOriginalForms.map(headword => ({
+    groupId: entry.entryId, originalGroup: entry.rawEntry, headword, kind: 'listed_related_form'
+  }))
+]);
+
 const startedAt = new Date().toISOString();
-const raw = [];
-const reportEntries = [];
+const outputDirectory = process.env.RAW_OUTPUT_DIR
+  ? resolve(process.env.RAW_OUTPUT_DIR)
+  : mkdtempSync(join(tmpdir(), 'vocabulary-verbatim-'));
+mkdirSync(outputDirectory, { recursive: true });
+const report = [];
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ locale: 'ko-KR', viewport: { width: 1365, height: 1024 } });
 const page = await context.newPage();
 page.setDefaultTimeout(12000);
 
-/** Extract only DOM content rendered by the Naver Oxford entry view. No internal endpoints or unrelated sites. */
-async function extractVisibleEntry() {
-  return await page.evaluate(() => {
-    const compact = value => String(value ?? '').replace(/\s+/g, ' ').trim();
-    const text = element => compact(element?.textContent);
-    const section = document.querySelector('.section_entry');
-    const headword = text(section?.querySelector('.entry_title .word'));
-    const header = section?.innerText ?? '';
-    const matchPron = label => header.match(new RegExp(`(?:^|\\n)${label}\\s*\\[\\s*([^\\]]+)\\]`, 'i'))?.[1]?.trim() ?? null;
-    const groups = [...document.querySelectorAll('#allMeanGroups .part_area')];
+/**
+ * Return exactly what the DOM contains. Never trim, collapse whitespace, translate,
+ * paraphrase, or generate a missing dictionary field. Metadata and checks are separate.
+ */
+async function captureRenderedDictionary(expansion) {
+  return page.evaluate((expansionInfo) => {
+    const fragment = node => node ? {
+      textContent: node.textContent,
+      outerHTML: node.outerHTML
+    } : null;
+
+    const header = document.querySelector('.section_entry');
+    const oxfordArea = document.querySelector('.section_mean .component_mean');
+    const groupedAreas = [...document.querySelectorAll('#allMeanGroups .part_area')];
     const senses = [];
-    for (const group of groups) {
-      const pos = text(group.querySelector('.part_speech')) || 'unclassified';
-      const list = group.nextElementSibling;
-      if (!list?.classList?.contains('mean_list')) continue;
-      let number = 0;
-      for (const desc of list.querySelectorAll('.mean_desc')) {
-        const item = desc.closest('li.mean_item');
-        const meanings = [...desc.querySelectorAll('.mean[lang="ko"]')].map(text).filter(Boolean);
-        // A usage note is distinct from a Korean definition.
-        const notes = text(desc.querySelector('.cont'));
-        const examples = [...(item?.querySelectorAll('.example_item') ?? [])].map(e => ({
-          english: text(e.querySelector('.origin .text')),
-          translationKo: text(e.querySelector('.translate .text, .translate'))
-        })).filter(e => e.english);
-        senses.push({
-          sourceSenseOrdinal: ++number,
-          partOfSpeech: pos,
-          level: text(desc.querySelector('.label_grade')) || null,
-          meaningsKo: meanings,
-          sourceUsageNotes: notes,
-          examples
-        });
+
+    const addSense = (description, posNode, ordinal, path) => {
+      const item = description.closest('li.mean_item');
+      const meanings = [...description.querySelectorAll('.mean[lang="ko"]')];
+      const examples = [...(item?.querySelectorAll('.example_item') || [])].map(row => ({
+        container: fragment(row),
+        english: fragment(row.querySelector('.origin .text')),
+        translationKo: fragment(row.querySelector('.translate .text, .translate'))
+      }));
+      senses.push({
+        sourceOrder: senses.length + 1,
+        groupOrdinal: ordinal,
+        extractionPath: path,
+        partOfSpeech: fragment(posNode),
+        level: fragment(description.querySelector('.label_grade')),
+        usageNote: fragment(description.querySelector('.cont')),
+        meaningItems: meanings.map(fragment),
+        senseContainer: fragment(item || description),
+        examples
+      });
+    };
+
+    for (const heading of groupedAreas) {
+      const list = heading.nextElementSibling;
+      if (!list?.classList.contains('mean_list')) continue;
+      const posNode = heading.querySelector('.part_speech') || heading;
+      let withinGroup = 0;
+      for (const description of list.querySelectorAll('.mean_desc')) {
+        addSense(description, posNode, ++withinGroup, 'allMeanGroups');
       }
     }
-    // Oxford thesaurus area is a preview; it is not the complete synonym/antonym set.
-    const thesaurus = [...document.querySelectorAll('#searchPage_globalThesaurus a[href*="thesaurus"]')]
-      .filter(a => !/View more/i.test(text(a)))
-      .map(a => ({ text: text(a), href: a.href })).filter(x => x.text);
-    const idioms = [...document.querySelectorAll('#_id_section_saying_idioms a[href*="entry/enko"]')]
-      .map(a => ({ phrase: text(a), href: a.href }));
-    const sourcePublisher = 'Oxford Advanced Learner’s English-Korean Dictionary (NAVER display)';
-    const source = location.href;
+
+    // Some short Oxford entries have no #allMeanGroups wrapper at all.
+    if (!senses.length && oxfordArea) {
+      let ordinal = 0;
+      for (const description of oxfordArea.querySelectorAll('.mean_desc')) {
+        const posNode = description.closest('.mean_tray')?.querySelector('.part_speech')
+          || oxfordArea.querySelector('.part_speech');
+        addSense(description, posNode, ++ordinal, 'oxfordComponentFallback');
+      }
+    }
+
+    const links = selector => [...document.querySelectorAll(selector)].map(node => ({
+      node: fragment(node),
+      hrefAttribute: node.getAttribute('href')
+    }));
+
     return {
-      status: senses.length > 0 ? 'extracted' : 'failed',
-      displayedHeadword: headword,
-      source,
-      sourcePublisher,
-      checkedAt: new Date().toISOString(),
-      pronunciation: { us: matchPron('US'), gb: matchPron('GB') },
+      displayedHeadword: fragment(header?.querySelector('.entry_title .word')),
+      sourceURL: location.href,
+      capturedAt: new Date().toISOString(),
+      sourceFragments: {
+        header: fragment(header),
+        oxfordMeanings: fragment(document.querySelector('#allMeanGroups') || oxfordArea),
+        idioms: fragment(document.querySelector('#_id_section_saying_idioms')),
+        thesaurus: fragment(document.querySelector('#searchPage_globalThesaurus'))
+      },
+      pronunciationNodes: [...(header?.querySelectorAll('.entry_pronunciation, .entry_pronounce, .entry_pron') || [])].map(fragment),
+      inflectionNodes: [...(header?.querySelectorAll('dl.entry_conjugation') || [])].map(fragment),
       senses,
-      idioms,
-      thesaurus,
-      extractionLimits: [
-        'Only the Oxford entry and visible example rows are included.',
-        'The NAVER thesaurus and idiom areas may contain previews, not full inventories.',
-        'Etymology, grammatical inflections, original mnemonics and exam usage require separate verification.',
-        'Dictionary examples and meanings are reference-only, not licensed for republication.'
-      ]
+      idiomLinks: links('#_id_section_saying_idioms a[href*="entry/enko"]'),
+      thesaurusPreviewLinks: links('#searchPage_globalThesaurus a[href*="thesaurus"]'),
+      expansion: expansionInfo
     };
-  });
+  }, expansion);
 }
 
-async function collectOne(entry) {
-  const query = encodeURIComponent(entry.headword);
-  await page.goto(`https://en.dict.naver.com/#/search?query=${query}`, { waitUntil: 'domcontentloaded', timeout: 12000 });
-  await page.locator('#revisionSearchPage_entry .component_keyword').first().waitFor({ state: 'visible', timeout: 12000 });
+async function expandExamples() {
+  const buttons = page.getByRole('button', { name: /View more examples|예문 더보기/i });
+  let clicked = 0;
+  let halted = false;
+  // The limit is a safety bound; if any button remains, mark the capture incomplete.
+  while (clicked < 150 && await buttons.count()) {
+    try {
+      const button = buttons.first();
+      await button.scrollIntoViewIfNeeded({ timeout: 1500 });
+      await button.click({ timeout: 1500 });
+      clicked += 1;
+    } catch {
+      halted = true;
+      break;
+    }
+  }
+  return { buttonsClicked: clicked, buttonsRemaining: await buttons.count(), expansionHalted: halted };
+}
 
-  // Navigate to the full dictionary entry. The search-card preview contains only the beginner senses.
-  const allMeaning = page.locator('#revisionSearchPage_entry a').filter({ hasText: /All meanings?\s*\(\d+\)/i });
-  if (await allMeaning.count()) {
-    await allMeaning.first().click();
+async function collectOne(target) {
+  const query = encodeURIComponent(target.headword);
+  await page.goto(`https://en.dict.naver.com/#/search?query=${query}`, {
+    waitUntil: 'domcontentloaded', timeout: 12000
+  });
+  await page.locator('#revisionSearchPage_entry .component_keyword').first().waitFor({
+    state: 'visible', timeout: 12000
+  });
+
+  const fullEntry = page.locator('#revisionSearchPage_entry a').filter({ hasText: /All meanings?\s*\(\d+\)/i });
+  let sourceAdvertisedCount = null;
+  let searchLinkText = null;
+  let searchLinkOuterHTML = null;
+  if (await fullEntry.count()) {
+    searchLinkText = await fullEntry.first().textContent();
+    searchLinkOuterHTML = await fullEntry.first().evaluate(node => node.outerHTML);
+    const match = searchLinkText?.match(/\((\d+)\)/);
+    if (match) sourceAdvertisedCount = Number(match[1]);
+    await fullEntry.first().click();
   } else {
-    // On a few entries, an exact-entry title link replaces the 'All meaning' link.
     const detail = page.locator('#revisionSearchPage_entry a[href*="entry/enko/"]');
-    if (!await detail.count()) throw new Error('No full-entry link in the NAVER result.');
+    if (!await detail.count()) throw new Error('No Oxford full-entry link found.');
+    searchLinkText = await detail.first().textContent();
+    searchLinkOuterHTML = await detail.first().evaluate(node => node.outerHTML);
     await detail.first().click();
   }
 
-  await page.locator('.section_entry .entry_title .word').first().waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('.section_entry .entry_title .word').first().waitFor({
+    state: 'visible', timeout: 20000
+  });
   const allTab = page.locator('#level_all');
   if (await allTab.count()) await allTab.click();
-  await page.locator('#allMeanGroups .part_area').first().waitFor({ state: 'visible', timeout: 20000 });
-  const moreExamples = page.getByRole('button', { name: 'View more examples' });
-  if (await moreExamples.count()) await moreExamples.first().click();
 
-  const entryData = await extractVisibleEntry();
-  const displayed = entryData.displayedHeadword.toLowerCase().replace(/[^a-z]/g, '');
-  const expected = entry.headword.toLowerCase().replace(/[^a-z]/g, '');
-  if (!displayed.startsWith(expected)) throw new Error(`Headword mismatch: expected ${expected}, got ${displayed}`);
-  if (!entryData.senses.length) throw new Error('No meanings in full Oxford entry.');
-  return entryData;
+  await page.locator('#allMeanGroups .mean_desc, .section_mean .component_mean .mean_desc')
+    .first().waitFor({ state: 'visible', timeout: 15000 });
+  const expansion = await expandExamples();
+  const capture = await captureRenderedDictionary(expansion);
+  const validation = evaluateCapture(capture, target.headword, sourceAdvertisedCount);
+  return { capture, validation, lookupMetadata: { searchLinkText, searchLinkOuterHTML, sourceAdvertisedCount } };
 }
 
 try {
-  let siteUnavailable = false;
-  for (const entry of input.entries) {
-    const started = Date.now();
-    let result;
-    if (siteUnavailable) {
-      result = {
-        status: 'not_attempted', source: null, pronunciation: {us:null,gb:null},
-        senses: [], idioms: [], thesaurus: [], extractionLimits: [],
-        error: 'First word navigation timed out twice. Further navigation skipped to prevent another long failed run.'
-      };
+  let initialNavigationUnavailable = false;
+  for (const [index, target] of targets.entries()) {
+    const start = Date.now();
+    let outcome;
+    if (initialNavigationUnavailable) {
+      outcome = { status: 'not_attempted', issues: ['initial_navigation_failed'], attempts: 0 };
     } else {
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          result = await collectOne(entry);
+          const result = await collectOne(target);
+          const sealed = sealCapture({
+            schemaVersion: 2,
+            source: 'NAVER English Dictionary, Oxford entry attempted (verify sourceURL and stored link markup)',
+            sourceList: input.source,
+            input: target,
+            lookupMetadata: result.lookupMetadata,
+            capture: result.capture,
+            validation: result.validation
+          });
+          const filename = `${String(index + 1).padStart(2, '0')}-${target.headword.replace(/[^a-z0-9-]/gi, '_')}.json`;
+          const filePath = join(outputDirectory, filename);
+          writeFileSync(filePath, JSON.stringify(sealed, null, 2) + '\n');
+          if (!verifySealedCapture(JSON.parse(readFileSync(filePath, 'utf8')))) {
+            throw new Error('Saved capture checksum mismatch');
+          }
+          outcome = {
+            status: result.validation.status,
+            issues: result.validation.issues,
+            sourceURL: result.capture.sourceURL,
+            counts: result.validation.counts,
+            originalCaptureSha256: sealed.integrity.captureSha256,
+            fileSha256: sha256(readFileSync(filePath, 'utf8')),
+            savedFilename: filename,
+            attempts: attempt
+          };
           break;
         } catch (error) {
-          result = {
-            status: 'failed', source: null, pronunciation: {us:null,gb:null},
-            senses: [], idioms: [], thesaurus: [], extractionLimits: [],
-            error: String(error?.message ?? error), attempts: attempt
-          };
+          const message = String(error?.message || error);
+          outcome = { status: 'failed', issues: ['collection_error'], error: message, attempts: attempt };
         }
       }
-      if (raw.length === 0 && /^page\.goto: Timeout/.test(result.error ?? '')) {
-        siteUnavailable = true;
-        console.warn('NAVER homepage navigation failed twice; remaining nine words will not be attempted.');
+      if (index === 0 && outcome.status === 'failed' && /page\.goto|net::ERR_|Navigation/i.test(outcome.error || '')) {
+        initialNavigationUnavailable = true;
       }
     }
-    const elapsedMs = Date.now() - started;
-    const item = { ...entry, ...result, elapsedMs };
-    raw.push(item);
-    const summary = normalizeReportEntry(entry, result, elapsedMs);
-    if (result.error) summary.error = result.error;
-    reportEntries.push(summary);
-    console.log(`${entry.entryId} ${entry.headword}: ${summary.status}, ${summary.sensesTotal} senses, ${elapsedMs} ms`);
+    report.push({ ...target, ...outcome, elapsedMs: Date.now() - start });
+    console.log(`${target.groupId}/${target.headword}: ${outcome.status}, ${outcome.counts?.senses ?? 0} meanings`);
   }
 } finally {
   await context.close();
   await browser.close();
 }
 
-mkdirSync('artifacts', { recursive: true });
-const full = {
-  schemaVersion: 1, pilotOnly: true,
-  sourceConsent: { status: 'pending', scope: '10 elementary entry groups; no redistribution approval' },
-  sourceOriginal: input.source,
-  startedAt, finishedAt: new Date().toISOString(), entries: raw
+const manifest = {
+  schemaVersion: 2,
+  inputSha256: sha256(input),
+  startedAt,
+  finishedAt: new Date().toISOString(),
+  outputDirectory,
+  scope: { originalGroups: input.entries.length, headwordLookups: targets.length },
+  rawSourceRecords: report.map(({ groupId, headword, kind, status, issues, sourceURL, originalCaptureSha256, fileSha256, savedFilename }) =>
+    ({ groupId, headword, kind, status, issues, sourceURL, originalCaptureSha256, fileSha256, savedFilename })),
+  note: 'Each capture is original rendered DOM text and HTML, not AI-written dictionary content.'
 };
-const rawBytes = JSON.stringify(full, null, 2) + '\n';
-// Temporary local file in the runner only. Do not upload/copy Oxford full text to this public repo.
-writeFileSync('artifacts/runner-only-raw.json', rawBytes);
-const report = summarize(reportEntries, startedAt, full.finishedAt);
-report.schemaVersion = 1;
-report.pilotOnly = true;
-report.siteNavigationFailed = report.entries[0]?.status === 'failed' && report.entries.slice(1).every(x => x.status === 'not_attempted');
-report.notAttempted = report.entries.filter(x => x.status === 'not_attempted').length;
-report.rawSha256 = createHash('sha256').update(rawBytes).digest('hex');
-report.note = 'Public artifact has counts, source links and pronunciations, not copyrighted full definitions/examples.';
-writeFileSync('artifacts/public-coverage-report.json', JSON.stringify(report, null, 2) + '\n');
-writeFileSync('artifacts/public-coverage-report.md', [
-  '## 네이버 초등 10개 조사 실행 결과',
+writeFileSync(join(outputDirectory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+const completed = report.filter(x => x.status === 'captured_dom').length;
+const needsReview = report.filter(x => x.status === 'needs_review').length;
+const failed = report.filter(x => x.status === 'failed').length;
+const summary = [
+  '## 영어단어 원문 수집 실행 진단',
   '',
-  `- 시작: ${report.startedAt}`,
-  `- 종료: ${report.finishedAt}`,
-  `- 전체 소요: ${(report.elapsedMs / 1000).toFixed(1)}초`,
-  `- 정상 추출: ${report.extracted}/${report.requested}`,
-  `- 의미 항목: ${report.totalSenses}개`,
-  `- 뜻별 예문 행: ${report.totalExamplePairs}개`,
-  `- 접속 실패 감지: ${report.siteNavigationFailed ? '예 (첫 단어 2회 타임아웃)' : '아니요'}`,
-  `- 접속 실패로 시도하지 않은 단어: ${report.notAttempted}개`,
+  `- 원본 교육부 표제어군: ${input.entries.length}개`,
+  `- 실제 조회 요청(관련형 포함): ${targets.length}개`,
+  `- DOM 수집 통과: ${completed}개`,
+  `- 추가 검토 필요: ${needsReview}개`,
+  `- 실패: ${failed}개`,
+  `- 미시도: ${report.filter(x => x.status === 'not_attempted').length}개`,
+  `- 원문 파일: 실행 환경 임시/지정 저장소에만 기록 (공개 GitHub 업로드 없음)`,
   '',
-  '| 단어 | 상태 | 의미 수 | 예문 수 | 소요(초) |',
-  '|---|---|---:|---:|---:|',
-  ...report.entries.map(x => `| ${x.headword} | ${x.status} | ${x.sensesTotal} | ${x.examplePairsFound} | ${(x.elapsedMs / 1000).toFixed(1)} |`),
-  '',
-  '원문 데이터는 공개 저장소에 게시하지 않습니다. 단어 전체 정보를 최종 학습 데이터로 승인·가공하는 작업은 별도입니다.'
-].join('\n') + '\n');
-if (process.env.GITHUB_STEP_SUMMARY) {
-  const { appendFileSync } = await import('node:fs');
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, readFileSync('artifacts/public-coverage-report.md'));
-}
-if (report.failed) process.exitCode = 2;
+  ...report.map(x => `- ${x.headword}: ${x.status} · ${x.counts?.senses ?? 0}개 뜻 · ${x.issues?.join(', ') || '기술 검증 통과'}`)
+].join('\n') + '\n';
+console.log(summary);
+if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+if (failed || needsReview || report.some(x => x.status === 'not_attempted')) process.exitCode = 2;

@@ -22,17 +22,7 @@ jobs:
         run: npm install --no-audit --no-fund --no-package-lock
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
-      - name: Validate pilot input and parser
+      - name: Validate source integrity and pilot input
         run: npm run check
-      - name: Collect all Oxford senses for 10 words
+      - name: Capture original dictionary DOM in temporary runner storage
         run: npm run collect
-      - name: Upload public coverage metrics only
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vocabulary-coverage-report
-          path: |
-            vocabulary-research/artifacts/public-coverage-report.json
-            vocabulary-research/artifacts/public-coverage-report.md
-          if-no-files-found: warn
-          retention-days: 14
