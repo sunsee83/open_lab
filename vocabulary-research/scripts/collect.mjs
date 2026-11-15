@@ -95,6 +95,9 @@ async function captureRenderedDictionary(expansion) {
       displayedHeadword: fragment(header?.querySelector('.entry_title .word')),
       sourceURL: location.href,
       capturedAt: new Date().toISOString(),
+      // This is the full rendered DOM at capture time (not an HTTP response body).
+      // Keep it verbatim so selectors can be audited for fields missed by extraction.
+      renderedDocumentHTML: document.documentElement.outerHTML,
       sourceFragments: {
         header: fragment(header),
         oxfordMeanings: fragment(document.querySelector('#allMeanGroups') || oxfordArea),

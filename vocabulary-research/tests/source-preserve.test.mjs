@@ -6,6 +6,7 @@ function fixture() {
   const raw = '  의미  1\n  있는 그대로!  ';
   return {
     sourceURL: 'https://en.dict.naver.com/#/entry/enko/12345',
+    renderedDocumentHTML: '<html>\n <body><div>  가공하지 않은 문장\n!</div></body>\n</html>',
     displayedHeadword: { textContent: 'act', outerHTML: '<span>act</span>' },
     sourceFragments: { header: { outerHTML: '<section>act</section>' } },
     senses: [{
@@ -22,6 +23,7 @@ test('원문 공백·줄바꿈·문장부호를 변경하지 않고 저장하고
   const sealed = sealCapture({ capture });
   const stored = JSON.parse(JSON.stringify(sealed));
   assert.equal(stored.capture.senses[0].meaningItems[0].textContent, original);
+  assert.equal(stored.capture.renderedDocumentHTML, capture.renderedDocumentHTML);
   assert.equal(stored.capture.senses[0].meaningItems[0].outerHTML, `<span>${original}</span>`);
   assert.ok(verifySealedCapture(stored));
   assert.equal(stored.integrity.captureSha256, sha256(capture));
