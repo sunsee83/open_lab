@@ -1,0 +1,18 @@
+{
+  "source": "2022 개정 영어과 교육과정 [별표 3] 기본 어휘",
+  "sourceUrl": "https://www.moe.go.kr/boardCnts/viewRenew.do?boardID=141&boardSeq=93458&lev=0&m=0302",
+  "group": "elementary",
+  "groupCount": 800,
+  "entries": [
+    {"entryId": "elementary-001", "headword": "a", "rawEntry": "a* (an)", "relatedOriginalForms": ["an"]},
+    {"entryId": "elementary-002", "headword": "about", "rawEntry": "about*", "relatedOriginalForms": []},
+    {"entryId": "elementary-003", "headword": "above", "rawEntry": "above*", "relatedOriginalForms": []},
+    {"entryId": "elementary-004", "headword": "across", "rawEntry": "across*", "relatedOriginalForms": []},
+    {"entryId": "elementary-005", "headword": "act", "rawEntry": "act* (actual, interact)", "relatedOriginalForms": ["actual", "interact"]},
+    {"entryId": "elementary-006", "headword": "add", "rawEntry": "add*", "relatedOriginalForms": []},
+    {"entryId": "elementary-007", "headword": "address", "rawEntry": "address*", "relatedOriginalForms": []},
+    {"entryId": "elementary-008", "headword": "adult", "rawEntry": "adult*", "relatedOriginalForms": []},
+    {"entryId": "elementary-009", "headword": "afraid", "rawEntry": "afraid*", "relatedOriginalForms": []},
+    {"entryId": "elementary-010", "headword": "after", "rawEntry": "after*", "relatedOriginalForms": []}
+  ]
+}
