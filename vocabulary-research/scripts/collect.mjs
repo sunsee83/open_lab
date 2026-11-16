@@ -136,7 +136,7 @@ async function expandExamples() {
 async function collectOne(target) {
   const query = encodeURIComponent(target.headword);
   await page.goto(`https://en.dict.naver.com/#/search?query=${query}`, {
-    waitUntil: 'domcontentloaded', timeout: 12000
+    waitUntil: 'commit', timeout: 20000
   });
   await page.locator('#revisionSearchPage_entry .component_keyword').first().waitFor({
     state: 'visible', timeout: 12000
