@@ -221,7 +221,7 @@ try {
       }
     }
     report.push({ ...target, ...outcome, elapsedMs: Date.now() - start });
-    console.log(`${target.groupId}/${target.headword}: ${outcome.status}, ${outcome.counts?.senses ?? 0} meanings`);
+    console.log(`${target.groupId}/${target.headword}: ${outcome.status}, ${outcome.counts?.senses ?? 0} meanings${outcome.error ? ' · ' + outcome.error : ''}`);
   }
 } finally {
   await context.close();
@@ -235,8 +235,8 @@ const manifest = {
   finishedAt: new Date().toISOString(),
   outputDirectory,
   scope: { originalGroups: input.entries.length, headwordLookups: targets.length },
-  rawSourceRecords: report.map(({ groupId, headword, kind, status, issues, sourceURL, originalCaptureSha256, fileSha256, savedFilename }) =>
-    ({ groupId, headword, kind, status, issues, sourceURL, originalCaptureSha256, fileSha256, savedFilename })),
+  rawSourceRecords: report.map(({ groupId, headword, kind, status, issues, error, sourceURL, originalCaptureSha256, fileSha256, savedFilename }) =>
+    ({ groupId, headword, kind, status, issues, error, sourceURL, originalCaptureSha256, fileSha256, savedFilename })),
   note: 'Each capture is original rendered DOM text and HTML, not AI-written dictionary content.'
 };
 writeFileSync(join(outputDirectory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
