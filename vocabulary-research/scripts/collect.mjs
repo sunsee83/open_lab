@@ -18,6 +18,21 @@ const targets = input.entries.flatMap(entry => [
   }))
 ]);
 
+// Direct entry URLs observed during the successful 2026-11-15 browser inspection.
+// They are source addresses only; no meanings or examples are synthesized.
+const knownOxfordEntryUrls = Object.freeze({
+  a: 'https://en.dict.naver.com/#/entry/enko/d6ecf932325646719c4a783d084ef562',
+  about: 'https://en.dict.naver.com/#/entry/enko/b9337700b3ed49c9bb666d0f2b713ad1',
+  above: 'https://en.dict.naver.com/#/entry/enko/c4901fd897cd40d7a3ddaa171a6d260e',
+  across: 'https://en.dict.naver.com/#/entry/enko/70b385452c4f4b19ac0c399db72eab85',
+  act: 'https://en.dict.naver.com/#/entry/enko/a37149e048d54d47abfad71c54c1316a',
+  add: 'https://en.dict.naver.com/#/entry/enko/9299c68376054c7daa93ab171c3bfede',
+  address: 'https://en.dict.naver.com/#/entry/enko/b975239cff644241ba8dbdeeb5466a3b',
+  adult: 'https://en.dict.naver.com/#/entry/enko/723e3b4e1ce94d96b9c501e1ecb84f71',
+  afraid: 'https://en.dict.naver.com/#/entry/enko/5df4567b49cf42b3ba37d66aaf21f766',
+  after: 'https://en.dict.naver.com/#/entry/enko/e819e2cff0bd47e5bfbe696f6f1e2f36'
+});
+
 const startedAt = new Date().toISOString();
 const outputDirectory = process.env.RAW_OUTPUT_DIR
   ? resolve(process.env.RAW_OUTPUT_DIR)
@@ -134,30 +149,36 @@ async function expandExamples() {
 }
 
 async function collectOne(target) {
-  const query = encodeURIComponent(target.headword);
-  await page.goto(`https://en.dict.naver.com/#/search?query=${query}`, {
-    waitUntil: 'commit', timeout: 20000
-  });
-  await page.locator('#revisionSearchPage_entry .component_keyword').first().waitFor({
-    state: 'visible', timeout: 12000
-  });
-
-  const fullEntry = page.locator('#revisionSearchPage_entry a').filter({ hasText: /All meanings?\s*\(\d+\)/i });
+  const directEntryURL = knownOxfordEntryUrls[target.headword] ?? null;
   let sourceAdvertisedCount = null;
   let searchLinkText = null;
   let searchLinkOuterHTML = null;
-  if (await fullEntry.count()) {
-    searchLinkText = await fullEntry.first().textContent();
-    searchLinkOuterHTML = await fullEntry.first().evaluate(node => node.outerHTML);
-    const match = searchLinkText?.match(/\((\d+)\)/);
-    if (match) sourceAdvertisedCount = Number(match[1]);
-    await fullEntry.first().click();
+
+  if (directEntryURL) {
+    await page.goto(directEntryURL, { waitUntil: 'commit', timeout: 20000 });
   } else {
-    const detail = page.locator('#revisionSearchPage_entry a[href*="entry/enko/"]');
-    if (!await detail.count()) throw new Error('No Oxford full-entry link found.');
-    searchLinkText = await detail.first().textContent();
-    searchLinkOuterHTML = await detail.first().evaluate(node => node.outerHTML);
-    await detail.first().click();
+    const query = encodeURIComponent(target.headword);
+    await page.goto(`https://en.dict.naver.com/#/search?query=${query}`, {
+      waitUntil: 'commit', timeout: 20000
+    });
+    await page.locator('#revisionSearchPage_entry .component_keyword').first().waitFor({
+      state: 'visible', timeout: 12000
+    });
+
+    const fullEntry = page.locator('#revisionSearchPage_entry a').filter({ hasText: /All meanings?\s*\(\d+\)/i });
+    if (await fullEntry.count()) {
+      searchLinkText = await fullEntry.first().textContent();
+      searchLinkOuterHTML = await fullEntry.first().evaluate(node => node.outerHTML);
+      const match = searchLinkText?.match(/\(\d+\)/);
+      if (match) sourceAdvertisedCount = Number(match[1]);
+      await fullEntry.first().click();
+    } else {
+      const detail = page.locator('#revisionSearchPage_entry a[href*="entry/enko/"]');
+      if (!await detail.count()) throw new Error('No Oxford full-entry link found.');
+      searchLinkText = await detail.first().textContent();
+      searchLinkOuterHTML = await detail.first().evaluate(node => node.outerHTML);
+      await detail.first().click();
+    }
   }
 
   await page.locator('.section_entry .entry_title .word').first().waitFor({
