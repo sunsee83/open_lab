@@ -2,27 +2,101 @@ name: Elementary Vocabulary Research (10)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/vocabulary-research.yml
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: elementary-vocabulary-original-capture
+  cancel-in-progress: false
 
 jobs:
   survey:
+    if: "github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'chore(vocabulary): execute public original-source pilot'"
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 12
     defaults:
       run:
         working-directory: vocabulary-research
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout open_lab
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - name: Install dependencies
         run: npm install --no-audit --no-fund --no-package-lock
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
-      - name: Validate source integrity and pilot input
+
+      - name: Validate collection code
         run: npm run check
-      - name: Capture original dictionary DOM in temporary runner storage
+
+      - name: Capture untouched dictionary DOM
+        id: collect
+        continue-on-error: true
+        env:
+          RAW_OUTPUT_DIR: ${{ github.workspace }}/vocabulary-research/source-captures/elementary-first-10
         run: npm run collect
+
+      - name: Verify original data before public storage
+        id: verify
+        env:
+          RAW_OUTPUT_DIR: ${{ github.workspace }}/vocabulary-research/source-captures/elementary-first-10
+        working-directory: .
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const root = process.env.RAW_OUTPUT_DIR;
+          const digest = value => crypto.createHash('sha256').update(value, 'utf8').digest('hex');
+          const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+          if (manifest.scope?.originalGroups !== 10 || manifest.scope?.headwordLookups !== 13 || manifest.rawSourceRecords?.length !== 13) {
+            throw Error('Pilot manifest scope mismatch');
+          }
+          let captured = 0;
+          for (const entry of manifest.rawSourceRecords) {
+            if (!entry.savedFilename) continue;
+            if (!/^[0-9]{2}-[A-Za-z0-9_-]+\.json$/.test(entry.savedFilename)) throw Error('Invalid filename');
+            const contents = fs.readFileSync(path.join(root, entry.savedFilename), 'utf8');
+            const record = JSON.parse(contents);
+            if (digest(contents) !== entry.fileSha256) throw Error('File checksum mismatch: ' + entry.headword);
+            if (digest(JSON.stringify(record.capture)) !== record.integrity?.captureSha256) {
+              throw Error('Original DOM checksum mismatch: ' + entry.headword);
+            }
+            if (record.input?.headword !== entry.headword || record.validation?.status !== entry.status ||
+                !['captured_dom', 'needs_review'].includes(entry.status) ||
+                !record.capture?.renderedDocumentHTML || !record.capture?.sourceURL) {
+              throw Error('Source text or URL missing: ' + entry.headword);
+            }
+            captured++;
+          }
+          if (!captured) throw Error('No original content collected: commit blocked');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'captured=' + captured + '\n');
+          console.log('Verbatim dictionary DOM files checked: ' + captured + '/13');
+          NODE
+
+      - name: Save only checked original captures in open_lab
+        if: steps.verify.outcome == 'success'
+        working-directory: .
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- 'vocabulary-research/source-captures/elementary-first-10'
+          git add -f -- 'vocabulary-research/source-captures/elementary-first-10/manifest.json'
+          if git diff --cached --quiet; then
+            echo 'Source captures unchanged'
+          else
+            git commit -m 'data(vocabulary): archive verified original dictionary DOM'
+            git push origin HEAD:main
+          fi
