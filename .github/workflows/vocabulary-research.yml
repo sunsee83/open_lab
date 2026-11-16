@@ -2,10 +2,6 @@ name: Elementary Vocabulary Research (10)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/vocabulary-research.yml
 
 permissions:
   contents: write
@@ -16,7 +12,6 @@ concurrency:
 
 jobs:
   survey:
-    if: "github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'chore(vocabulary): execute public original-source pilot'"
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     defaults:
