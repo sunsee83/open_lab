@@ -25,8 +25,8 @@
 
 ## 실행 및 한계
 
-GitHub `sunsee83/open_lab` → **Actions** → **Elementary Vocabulary Research (10)** → **Run workflow**. 현재 워크플로는 수동 실행을 기본으로 합니다. 최초 저장 검증을 위해 한 번 실행한 뒤 자동 실행 조건은 제거합니다.
+GitHub `sunsee83/open_lab` → **Actions** → **Elementary Vocabulary Research (10)** → **Run workflow**. 현재 워크플로는 **수동 실행만 가능**합니다. 실패한 실행에서 생성한 빈 결과물은 커밋하지 않습니다.
 
 검증 명령: `npm run check` (`node --check` 및 로컬 테스트). 실제 조사: `npm run collect` (Playwright 의존성 설치 필요).
 
-이전 실행에서는 GitHub Actions 실행기의 네이버 첫 화면 탐색이 타임아웃으로 실패했습니다. 이번 코드 변경은 **원문 충실성·무결성·결과 격리**를 위한 것이며, 해당 네트워크 접근 실패가 해결되었다고 주장하지 않습니다. 수집 대상 DOM 선택자는 사이트 변경 시 다시 검증해야 합니다.
+2026-11-15 별도 브라우저에서는 기본 표제어 10개 Oxford 상세 페이지 접근에 성공했습니다. 2026-11-16 GitHub Actions [재실행 43807147769](https://github.com/sunsee83/open_lab/actions/runs/43807147769)에서 그때 확인된 상세 주소로 직접 접근했지만 첫 표제어 `a`의 `page.goto`가 20초씩 시간 초과되어 **원문 0/13건**, 저장 0건으로 끝났습니다. 코드는 유지하고 자동 반복은 중단했습니다.
